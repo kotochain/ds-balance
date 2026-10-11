@@ -1,0 +1,33 @@
+{
+  "name": "ds-balance",
+  "version": "1.1.0",
+  "description": "DeepSeek API Key 余额查询与本地消费可视化（命令行 + 网页版，零依赖）",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "ds-balance": "./ds-balance.mjs"
+  },
+  "files": [
+    "ds-balance.mjs",
+    "ui.html",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node ds-balance.mjs",
+    "serve": "node ds-balance.mjs --serve --open",
+    "history": "node ds-balance.mjs --history",
+    "test": "node tests/self-test.mjs"
+  },
+  "keywords": [
+    "deepseek",
+    "api-key",
+    "balance",
+    "cli",
+    "dashboard"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

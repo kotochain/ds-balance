@@ -1,0 +1,13 @@
+# 本机数据：密钥和查询记录，绝不入库
+data/
+
+# 依赖与日志
+node_modules/
+*.log
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

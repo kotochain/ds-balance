@@ -1,0 +1,1124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0e14">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<title>DeepSeek 余额</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e14;
+    --panel: #121826;
+    --panel-hi: #182031;
+    --border: #232d42;
+    --border-hi: #2f3b55;
+    --text: #e7ecf6;
+    --muted: #8a97b0;
+    --faint: #5d6a83;
+    --accent: #4d6bfe;
+    --accent-soft: #24305c;
+    --ok: #3fb950;
+    --warn: #d5a021;
+    --bad: #f2555a;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1100px 620px at 12% -12%, #1a2444 0%, transparent 62%),
+      radial-gradient(900px 520px at 92% 0%, #1b2b3f 0%, transparent 58%),
+      var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 72px; }
+
+  .skip {
+    position: absolute; left: 12px; top: -60px; z-index: 20;
+    background: var(--accent); color: #fff; padding: 10px 16px;
+    border-radius: 10px; text-decoration: none; font-weight: 600;
+    transition: top .16s ease;
+  }
+  .skip:focus { top: 12px; }
+
+  :where(a, button, input, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  /* ── 顶栏 ─────────────────────────────────────────── */
+  header.topbar {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    align-items: center; justify-content: space-between;
+    margin-bottom: 26px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .logo {
+    width: 40px; height: 40px; flex: none; border-radius: 12px;
+    background: linear-gradient(140deg, var(--accent), #7b8dff);
+    display: grid; place-items: center; font-weight: 700; font-size: 19px;
+    color: #fff; box-shadow: 0 6px 20px -8px var(--accent);
+  }
+  h1 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.01em; text-wrap: balance; }
+  .sub { margin: 2px 0 0; font-size: 12.5px; color: var(--faint); }
+  .sub code { color: var(--muted); font-size: 12px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+
+  button {
+    font: inherit; color: var(--text); cursor: pointer;
+    background: var(--panel-hi); border: 1px solid var(--border-hi);
+    border-radius: 10px; padding: 8px 14px;
+    transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+  }
+  button:hover:not(:disabled) { background: #1f2941; border-color: #3b4a6b; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #3f5cf0; border-color: #3f5cf0; }
+  button.ghost { background: transparent; }
+  button.icon { padding: 8px 10px; line-height: 1; }
+  button.danger:hover:not(:disabled) { background: #3a1b22; border-color: #63313a; color: #ff9ba0; }
+
+  .switch { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+  .switch input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+
+  /* ── 总览 ─────────────────────────────────────────── */
+  .summary {
+    display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-end;
+    padding: 20px 22px; margin-bottom: 22px;
+    background: linear-gradient(180deg, var(--panel-hi), var(--panel));
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .metric-label { font-size: 12px; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 5px; }
+  .metric-value { font-size: 32px; font-weight: 660; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .metric-value .cur { font-size: 19px; font-weight: 550; color: var(--muted); margin-right: 3px; }
+  .metric-value.small { font-size: 20px; font-weight: 600; }
+  .metric-note { font-size: 12.5px; color: var(--faint); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .summary .spacer { flex: 1 1 auto; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-hi); color: var(--muted); background: #0f1524; white-space: nowrap; }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .pill.ok { color: var(--ok); border-color: #24462d; }
+  .pill.warn { color: var(--warn); border-color: #4a3c18; }
+  .pill.bad { color: var(--bad); border-color: #55272c; }
+  .pill.load { color: var(--accent); border-color: var(--accent-soft); }
+
+  /* ── 卡片网格 ─────────────────────────────────────── */
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+    display: flex; flex-direction: column; gap: 14px;
+    min-width: 0;
+    transition: border-color .18s ease, background-color .18s ease;
+  }
+  .card:hover { border-color: var(--border-hi); }
+  .card.is-bad { border-color: #4a2229; background: linear-gradient(180deg, #1a1220, var(--panel)); }
+
+  .card-head { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .card-title { min-width: 0; flex: 1; }
+  .card-name { font-weight: 620; font-size: 15.5px; overflow-wrap: anywhere; }
+  .card-key { font-size: 12px; color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 2px; overflow-wrap: anywhere; }
+
+  .balance { font-size: 30px; font-weight: 660; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .balance .cur { font-size: 17px; font-weight: 550; color: var(--muted); margin-right: 3px; }
+  .balance.low { color: var(--warn); }
+
+  /* 赠金 / 充值占比条。
+     注意：这个类名以前叫 .bar，和顶栏的 class="bar" 撞了 —— 顶栏因此被套上
+     height:7px + overflow:hidden，整条被裁掉。改名成 .meter 杜绝这类碰撞。 */
+  .meter { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: #1c2436; }
+  .meter span { display: block; height: 100%; }
+  .meter .granted { background: linear-gradient(90deg, #7b8dff, var(--accent)); }
+  .meter .topped { background: #2f7d4f; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend i { font-style: normal; display: inline-block; width: 8px; height: 8px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+  .legend .g i { background: var(--accent); }
+  .legend .t i { background: #2f7d4f; }
+
+  .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .card-foot .row { display: flex; gap: 8px; align-items: center; }
+
+  .err { font-size: 13px; color: #ffa6aa; background: #251419; border: 1px solid #4a2229; border-radius: 10px; padding: 10px 12px; overflow-wrap: anywhere; }
+
+  .skeleton { background: linear-gradient(90deg, #182031 25%, #1f2a41 50%, #182031 75%); background-size: 240% 100%; animation: shimmer 1.3s linear infinite; border-radius: 8px; height: 30px; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -40% 0; } }
+
+  /* ── 空状态 ───────────────────────────────────────── */
+  .empty {
+    text-align: center; padding: 56px 24px;
+    border: 1px dashed var(--border-hi); border-radius: var(--radius);
+    background: #0e1421;
+  }
+  .empty h2 { margin: 0 0 8px; font-size: 17px; font-weight: 620; text-wrap: balance; }
+  .empty p { margin: 0 auto 20px; color: var(--muted); max-width: 44ch; font-size: 13.5px; }
+
+  /* ── 临时查询 ─────────────────────────────────────── */
+  details.temp { margin-top: 26px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+  details.temp > summary { cursor: pointer; padding: 14px 18px; font-size: 14px; font-weight: 560; list-style: none; display: flex; align-items: center; gap: 9px; }
+  details.temp > summary::-webkit-details-marker { display: none; }
+  details.temp > summary::before { content: "▸"; color: var(--faint); transition: transform .16s ease; display: inline-block; }
+  details.temp[open] > summary::before { transform: rotate(90deg); }
+  details.temp .body { padding: 0 18px 18px; border-top: 1px solid var(--border); }
+  details.temp .hint { color: var(--faint); font-size: 12.5px; margin: 14px 0 0; }
+
+  /* ── 表单 ─────────────────────────────────────────── */
+  .field { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; min-width: 0; }
+  label { font-size: 13px; color: var(--muted); font-weight: 520; }
+  .input-row { display: flex; gap: 9px; align-items: stretch; min-width: 0; }
+  input[type="text"], input[type="password"] {
+    flex: 1; min-width: 0;
+    font: inherit; color: var(--text);
+    background: #0d1320; border: 1px solid var(--border-hi);
+    border-radius: 10px; padding: 10px 12px;
+    transition: border-color .15s ease;
+  }
+  input::placeholder { color: var(--faint); }
+  input[type="password"] { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; }
+  .field-error { font-size: 12.5px; color: #ffa6aa; min-height: 17px; }
+
+  /* ── 对话框 ───────────────────────────────────────── */
+  dialog {
+    border: 1px solid var(--border-hi); border-radius: 16px;
+    background: var(--panel); color: var(--text);
+    padding: 22px; width: min(460px, calc(100vw - 32px));
+    overscroll-behavior: contain;
+    box-shadow: 0 30px 80px -20px #000;
+  }
+  dialog::backdrop { background: rgba(4, 7, 13, .68); }
+  dialog h2 { margin: 0; font-size: 17px; font-weight: 640; text-wrap: balance; }
+  dialog .lead { margin: 7px 0 0; font-size: 13px; color: var(--muted); }
+  dialog .foot { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+
+  /* ── 提示条 ───────────────────────────────────────── */
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: #1b2436; border: 1px solid var(--border-hi); color: var(--text);
+    padding: 10px 18px; border-radius: 999px; font-size: 13.5px;
+    box-shadow: 0 14px 40px -12px #000; opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease; z-index: 30; max-width: calc(100vw - 32px);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+  #toast.bad { border-color: #63313a; background: #2a161c; }
+
+  /* ── 查询记录与图表 ───────────────────────────────── */
+  .history {
+    margin-top: 26px; padding: 18px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .history-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .history-title { margin: 0; font-size: 15px; font-weight: 620; text-wrap: balance; }
+  .history-meta { flex: 1 1 auto; font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .history-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+  .history-stat { flex: 1 1 150px; min-width: 0; padding: 12px 14px; background: #0e1421; border: 1px solid var(--border); border-radius: 10px; }
+  .history-stat-label { font-size: 11.5px; color: var(--faint); letter-spacing: .03em; }
+  .history-stat-value { margin-top: 4px; font-size: 20px; font-weight: 620; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+  .history-stat-value.up { color: var(--ok); }
+  .history-stat-value.down { color: #ff9ba0; }
+  .history-sub { margin: 24px 0 0; font-size: 13px; font-weight: 600; }
+  .history-empty { padding: 30px 20px; text-align: center; color: var(--muted); font-size: 13.5px; border: 1px dashed var(--border-hi); border-radius: 10px; }
+
+  .chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart-svg text { font-size: 11px; fill: var(--faint); font-variant-numeric: tabular-nums; }
+  .chart-gridline { stroke: var(--border); stroke-width: 1; }
+  .chart-axisline { stroke: var(--border-hi); stroke-width: 1; }
+  .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .chart-dot { stroke: var(--panel); stroke-width: 1.5; }
+  .chart-col { fill: var(--accent); transition: fill .15s ease; }
+  .chart-col:hover { fill: #6b84ff; }
+  .chart-col-topup { fill: #2f7d4f; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chart-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+
+  .event-list { margin-top: 10px; }
+  .event-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .event-row:last-child { border-bottom: none; }
+  .event-when { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .event-name { color: var(--muted); }
+  .event-amount { font-weight: 620; font-variant-numeric: tabular-nums; }
+  .event-amount.up { color: var(--ok); }
+  .event-amount.down { color: #ff9ba0; }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 20px 14px 60px; }
+    .summary { gap: 18px; padding: 16px; }
+    .metric-value { font-size: 26px; }
+    header.topbar { align-items: flex-start; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到主内容</a>
+
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">DS</div>
+      <div>
+        <h1>DeepSeek 余额</h1>
+        <p class="sub">接口 <code id="baseUrl" translate="no">…</code></p>
+      </div>
+    </div>
+    <div class="actions">
+      <label class="switch" for="autoRefresh">
+        <input type="checkbox" id="autoRefresh" checked>
+        自动刷新
+      </label>
+      <button type="button" id="refreshAll">刷新全部</button>
+      <button type="button" class="primary" id="openAdd">添加密钥</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="summary" aria-label="总览">
+      <div>
+        <div class="metric-label">合计可用余额</div>
+        <div class="metric-value" id="totalValue">—</div>
+        <div class="metric-note" id="totalNote">正在加载…</div>
+      </div>
+      <div class="spacer"></div>
+      <div>
+        <div class="metric-label">密钥</div>
+        <div class="metric-value small" id="keyCount">0 个</div>
+        <div class="metric-note" id="lastUpdated">尚未查询</div>
+      </div>
+      <div>
+        <div class="metric-label">低余额线</div>
+        <div class="metric-value small" id="thresholdValue">¥10.00</div>
+        <div class="metric-note"><button type="button" class="ghost" id="editThreshold" style="padding:2px 8px;font-size:12px">修改</button></div>
+      </div>
+    </section>
+
+    <section id="keyList" aria-label="密钥列表" aria-live="polite"></section>
+
+    <section class="history" id="historyPanel" aria-labelledby="historyTitle" hidden>
+      <div class="history-head">
+        <h2 class="history-title" id="historyTitle">查询记录</h2>
+        <span class="history-meta" id="historyMeta">…</span>
+        <button type="button" class="danger" id="clearHistory">清空记录</button>
+      </div>
+      <div id="historyBody" aria-live="polite"></div>
+    </section>
+
+    <details class="temp">
+      <summary>临时查询一个密钥（不会保存）</summary>
+      <div class="body">
+        <form id="tempForm" novalidate>
+          <div class="field">
+            <label for="tempKey">API Key</label>
+            <div class="input-row">
+              <input type="password" id="tempKey" name="temp-api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" translate="no" required>
+              <button type="button" class="icon" id="tempReveal" aria-label="显示密钥">👁</button>
+              <button type="submit" id="tempSubmit">查询</button>
+            </div>
+            <div class="field-error" id="tempError" role="alert"></div>
+          </div>
+        </form>
+        <div id="tempResult" aria-live="polite"></div>
+        <p class="hint">密钥只在本次请求中转发给 DeepSeek，不写入磁盘。</p>
+      </div>
+    </details>
+  </main>
+</div>
+
+<dialog id="addDialog" aria-labelledby="addTitle">
+  <form id="addForm" novalidate>
+    <h2 id="addTitle">添加密钥</h2>
+    <p class="lead">密钥保存在本机 <code translate="no">data/keys.json</code>，权限 600，不会上传到任何地方。</p>
+    <div class="field">
+      <label for="addName">名称</label>
+      <input type="text" id="addName" name="key-name" placeholder="主账号…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="addKey">API Key</label>
+      <div class="input-row">
+        <input type="password" id="addKey" name="api-key" placeholder="sk-…" autocomplete="off" spellcheck="false" translate="no" required>
+        <button type="button" class="icon" id="addReveal" aria-label="显示密钥">👁</button>
+      </div>
+      <div class="field-error" id="addError" role="alert"></div>
+    </div>
+    <div class="foot">
+      <button type="button" class="ghost" id="cancelAdd">取消</button>
+      <button type="submit" class="primary" id="saveAdd">保存并查询</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var REFRESH_MS = 60000;
+  var STORAGE_KEY = 'ds-balance:threshold';
+
+  var state = {
+    baseUrl: '',
+    keys: [],
+    results: {},      // id -> { ok, status, latencyMs, isAvailable, balances, error, at }
+    loadingAll: false,
+    threshold: 10,
+    lastUpdated: null,
+    history: null
+  };
+
+  var el = {
+    baseUrl: document.getElementById('baseUrl'),
+    totalValue: document.getElementById('totalValue'),
+    totalNote: document.getElementById('totalNote'),
+    keyCount: document.getElementById('keyCount'),
+    lastUpdated: document.getElementById('lastUpdated'),
+    thresholdValue: document.getElementById('thresholdValue'),
+    editThreshold: document.getElementById('editThreshold'),
+    keyList: document.getElementById('keyList'),
+    refreshAll: document.getElementById('refreshAll'),
+    openAdd: document.getElementById('openAdd'),
+    autoRefresh: document.getElementById('autoRefresh'),
+    historyPanel: document.getElementById('historyPanel'),
+    historyMeta: document.getElementById('historyMeta'),
+    historyBody: document.getElementById('historyBody'),
+    clearHistory: document.getElementById('clearHistory'),
+    addDialog: document.getElementById('addDialog'),
+    addForm: document.getElementById('addForm'),
+    addName: document.getElementById('addName'),
+    addKey: document.getElementById('addKey'),
+    addError: document.getElementById('addError'),
+    addReveal: document.getElementById('addReveal'),
+    cancelAdd: document.getElementById('cancelAdd'),
+    saveAdd: document.getElementById('saveAdd'),
+    tempForm: document.getElementById('tempForm'),
+    tempKey: document.getElementById('tempKey'),
+    tempError: document.getElementById('tempError'),
+    tempResult: document.getElementById('tempResult'),
+    tempSubmit: document.getElementById('tempSubmit'),
+    tempReveal: document.getElementById('tempReveal'),
+    toast: document.getElementById('toast')
+  };
+
+  /* ── 基础工具 ─────────────────────────────────────── */
+
+  function esc(value) {
+    return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  function isMoney(code) { return code === 'CNY' || code === 'USD'; }
+
+  /** 用 Intl 拆分货币符号和数字，便于分别排版 */
+  function moneyHtml(value, currency) {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '<span>—</span>';
+    if (!isMoney(currency)) {
+      return esc(currency + ' ') + esc(new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value));
+    }
+    var parts = new Intl.NumberFormat('zh-CN', {
+      style: 'currency', currency: currency, minimumFractionDigits: 2, maximumFractionDigits: 2
+    }).formatToParts(value);
+    return parts.map(function (part) {
+      return part.type === 'currency'
+        ? '<span class="cur">' + esc(part.value) + '</span>'
+        : esc(part.value);
+    }).join('');
+  }
+
+  function moneyText(value, currency) {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+    try {
+      return new Intl.NumberFormat('zh-CN', {
+        style: 'currency', currency: isMoney(currency) ? currency : 'CNY',
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      }).format(value);
+    } catch (e) {
+      return value.toFixed(2) + ' ' + currency;
+    }
+  }
+
+  var timeFmt = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  var dateTimeFmt = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  function formatTime(date) {
+    return date ? timeFmt.format(date) : '—';
+  }
+
+  /* ── 提示条 ───────────────────────────────────────── */
+
+  var toastTimer = null;
+  function toast(message, bad) {
+    el.toast.textContent = message;
+    el.toast.className = 'show' + (bad ? ' bad' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.toast.className = ''; }, 3200);
+  }
+
+  /* ── 接口调用 ─────────────────────────────────────── */
+
+  function request(path, options) {
+    return fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, options))
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (body) {
+          if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+          return body;
+        });
+      });
+  }
+
+  /* ── 渲染 ─────────────────────────────────────────── */
+
+  function statusPill(result) {
+    if (!result) return '<span class="pill load"><span class="dot"></span>查询中…</span>';
+    if (!result.ok) return '<span class="pill bad"><span class="dot"></span>查询失败</span>';
+    if (!result.isAvailable) return '<span class="pill warn"><span class="dot"></span>余额不足</span>';
+    return '<span class="pill ok"><span class="dot"></span>可正常调用</span>';
+  }
+
+  /** 服务端返回的是扁平结构：{ ok, isAvailable, balances: [...] } */
+  function primaryBalance(result) {
+    if (!result || !result.ok) return null;
+    var list = result.balances || [];
+    if (!list.length) return null;
+    return list.reduce(function (best, item) {
+      if (!best) return item;
+      return (item.total || 0) > (best.total || 0) ? item : best;
+    }, null);
+  }
+
+  function cardHtml(entry) {
+    var result = state.results[entry.id];
+    var loading = !result && state.loadingAll;
+    var primary = primaryBalance(result);
+    var low = primary && primary.total !== null && primary.total < state.threshold;
+    var bad = result && !result.ok;
+
+    var body;
+    if (loading) {
+      body = '<div class="skeleton" aria-hidden="true"></div>';
+    } else if (bad) {
+      body = '<p class="err">' + esc(result.error || '查询失败') + '</p>';
+    } else if (!result) {
+      body = '<p class="err">点击「刷新全部」查询余额。</p>';
+    } else if (!primary) {
+      body = '<p class="err">接口未返回余额明细。</p>';
+    } else {
+      var extra = (result.balances || []).filter(function (b) { return b !== primary; })
+        .map(function (b) { return '<span>' + moneyHtml(b.total, b.currency) + '</span>'; }).join('');
+      var granted = primary.granted || 0;
+      var topped = primary.toppedUp || 0;
+      var sum = granted + topped;
+      var grantedPct = sum > 0 ? Math.max(0, Math.min(100, (granted / sum) * 100)) : 0;
+
+      body =
+        '<div class="balance' + (low ? ' low' : '') + '">' + moneyHtml(primary.total, primary.currency) + '</div>' +
+        (sum > 0 ? '<div class="meter" role="img" aria-label="赠金占比 ' + Math.round(grantedPct) + '%，充值占比 ' + Math.round(100 - grantedPct) + '%">' +
+          '<span class="granted" style="width:' + grantedPct.toFixed(1) + '%"></span>' +
+          '<span class="topped" style="width:' + (100 - grantedPct).toFixed(1) + '%"></span>' +
+        '</div>' : '') +
+        '<div class="legend">' +
+          '<span class="g"><i aria-hidden="true"></i>赠金 ' + moneyText(primary.granted, primary.currency) + '</span>' +
+          '<span class="t"><i aria-hidden="true"></i>充值 ' + moneyText(primary.toppedUp, primary.currency) + '</span>' +
+          (extra ? '<span>' + extra + '</span>' : '') +
+        '</div>' +
+        (low ? '<p class="err" style="border-color:#4a3c18;background:#241f10;color:#f0cd76">余额已低于设定线 ' + esc(moneyText(state.threshold, primary.currency)) + '，记得充值。</p>' : '');
+    }
+
+    var footer = result && result.ok
+      ? '<span>' + formatTime(result.at) + '</span><span>' + result.latencyMs + ' ms</span>'
+      : (result ? '<span>' + formatTime(result.at) + '</span>' : '<span>未查询</span>');
+
+    return '' +
+      '<article class="card' + (bad ? ' is-bad' : '') + '">' +
+        '<div class="card-head">' +
+          '<div class="card-title">' +
+            '<div class="card-name">' + esc(entry.name) + '</div>' +
+            '<div class="card-key" translate="no">' + esc(entry.masked) + '</div>' +
+          '</div>' +
+          statusPill(result) +
+        '</div>' +
+        body +
+        '<div class="card-foot">' +
+          '<span class="row">' + footer + '</span>' +
+          '<span class="row">' +
+            '<button type="button" class="icon" data-act="query" data-id="' + esc(entry.id) + '" aria-label="查询 ' + esc(entry.name) + ' 的余额">↻</button>' +
+            '<button type="button" class="icon danger" data-act="delete" data-id="' + esc(entry.id) + '" data-name="' + esc(entry.name) + '" aria-label="删除 ' + esc(entry.name) + '">✕</button>' +
+          '</span>' +
+        '</div>' +
+      '</article>';
+  }
+
+  function renderKeys() {
+    if (!state.keys.length) {
+      el.keyList.className = '';
+      el.keyList.innerHTML =
+        '<div class="empty">' +
+          '<h2>还没有保存密钥</h2>' +
+          '<p>添加一个 DeepSeek API Key，就能在这里看到实时余额、赠金与充值构成。密钥只保存在本机。</p>' +
+          '<button type="button" class="primary" id="emptyAdd">添加第一个密钥</button>' +
+        '</div>';
+      var button = document.getElementById('emptyAdd');
+      if (button) button.addEventListener('click', openAddDialog);
+      return;
+    }
+    el.keyList.className = 'grid';
+    el.keyList.innerHTML = state.keys.map(cardHtml).join('');
+  }
+
+  function renderSummary() {
+    var totals = {};
+    var okCount = 0;
+    state.keys.forEach(function (entry) {
+      var result = state.results[entry.id];
+      if (!result || !result.ok) return;
+      okCount += 1;
+      (result.balances || []).forEach(function (b) {
+        if (b.total === null) return;
+        totals[b.currency] = (totals[b.currency] || 0) + b.total;
+      });
+    });
+
+    var currencies = Object.keys(totals);
+    if (!currencies.length) {
+      el.totalValue.textContent = '—';
+    } else {
+      el.totalValue.innerHTML = currencies
+        .map(function (code) { return moneyHtml(totals[code], code); })
+        .join('<span style="color:#5d6a83;font-weight:400;margin:0 8px">+</span>');
+    }
+
+    el.totalNote.textContent = state.keys.length
+      ? okCount + ' / ' + state.keys.length + ' 个密钥查询成功'
+      : '还没有保存密钥';
+    el.keyCount.textContent = state.keys.length + ' 个';
+    el.lastUpdated.textContent = state.lastUpdated
+      ? '更新于 ' + formatTime(state.lastUpdated)
+      : '尚未查询';
+    el.baseUrl.textContent = state.baseUrl || '—';
+    el.thresholdValue.innerHTML = moneyHtml(state.threshold, 'CNY');
+  }
+
+  function render() {
+    renderSummary();
+    renderKeys();
+  }
+
+  /* ── 业务动作 ─────────────────────────────────────── */
+
+  function loadState() {
+    return request('/api/state').then(function (body) {
+      state.baseUrl = body.baseUrl;
+      state.keys = body.keys || [];
+    });
+  }
+
+  function markLoading(ids) {
+    ids.forEach(function (id) { state.results[id] = null; });
+    state.loadingAll = true;
+    render();
+  }
+
+  function queryAll(record) {
+    var payload = JSON.stringify({ record: record !== false });
+    return request('/api/query-all', { method: 'POST', body: payload }).then(function (body) {
+      var now = new Date();
+      (body.results || []).forEach(function (item) {
+        state.results[item.id] = Object.assign({}, item, { at: now });
+      });
+      state.loadingAll = false;
+      state.lastUpdated = now;
+      render();
+      // 查询会记一条读数，图表跟着更新
+      loadHistory();
+      var failed = (body.results || []).filter(function (r) { return !r.ok; }).length;
+      if (failed) toast(failed + ' 个密钥查询失败，详见卡片提示', true);
+    }).catch(function (err) {
+      state.loadingAll = false;
+      render();
+      toast('查询失败：' + err.message, true);
+    });
+  }
+
+  function queryOne(id) {
+    state.results[id] = undefined;
+    state.loadingAll = true;
+    render();
+    return request('/api/query', { method: 'POST', body: JSON.stringify({ id: id }) })
+      .then(function (item) {
+        state.results[id] = Object.assign({}, item, { at: new Date() });
+        state.loadingAll = false;
+        state.lastUpdated = new Date();
+        render();
+        loadHistory();
+      })
+      .catch(function (err) {
+        state.loadingAll = false;
+        render();
+        toast('查询失败：' + err.message, true);
+      });
+  }
+
+  function deleteKey(id, name) {
+    if (!window.confirm('确定删除「' + name + '」吗？删除后需要重新添加。')) return;
+    request('/api/keys/' + encodeURIComponent(id), { method: 'DELETE' })
+      .then(function () {
+        delete state.results[id];
+        return loadState();
+      })
+      .then(function () {
+        render();
+        toast('已删除「' + name + '」');
+      })
+      .catch(function (err) { toast('删除失败：' + err.message, true); });
+  }
+
+  function openAddDialog() {
+    el.addError.textContent = '';
+    el.addForm.reset();
+    if (typeof el.addDialog.showModal === 'function') el.addDialog.showModal();
+    else el.addDialog.setAttribute('open', '');
+    el.addName.focus();
+  }
+
+  function closeAddDialog() {
+    if (typeof el.addDialog.close === 'function') el.addDialog.close();
+    else el.addDialog.removeAttribute('open');
+  }
+
+  function toggleReveal(input, button) {
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    button.textContent = show ? '🙈' : '👁';
+    button.setAttribute('aria-label', show ? '隐藏密钥' : '显示密钥');
+    input.focus();
+  }
+
+  /* ── 查询记录与图表 ───────────────────────────────── */
+
+  var PALETTE = ['#4d6bfe', '#3fb950', '#d5a021', '#f2555a', '#a371f7', '#39c5cf'];
+
+  function currencySymbol(code) {
+    if (code === 'CNY') return '¥';
+    if (code === 'USD') return '$';
+    return String(code || '') + ' ';
+  }
+
+  /** 坐标轴用的紧凑金额。decimals 传进来保证同一根轴上的刻度精度一致 */
+  function moneyShort(value, currency, decimals) {
+    var symbol = currencySymbol(currency);
+    if (!Number.isFinite(value)) return symbol + '0';
+    var digits = decimals === undefined ? (Math.abs(value) >= 10 ? 0 : 1) : decimals;
+    return symbol + value.toFixed(digits);
+  }
+
+  /** 一根轴上所有刻度统一用几位小数 */
+  function axisDecimals(top) {
+    return top >= 10 ? 0 : 1;
+  }
+
+  /** 把最大值向上取整到 1/2/5 × 10ⁿ，让刻度好看 */
+  function niceCeil(value) {
+    if (!(value > 0)) return 1;
+    var exponent = Math.pow(10, Math.floor(Math.log10(value)));
+    var normalized = value / exponent;
+    var step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return step * exponent;
+  }
+
+  function shortTime(ts) {
+    return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(ts));
+  }
+
+  /** 余额变化折线：每个密钥一条线 */
+  function balanceChartSvg(series, labelOf) {
+    var usable = series.filter(function (item) { return item.points.length > 0; });
+    if (!usable.length) return '';
+
+    var W = 760, H = 200, padL = 58, padR = 14, padT = 16, padB = 28;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var times = [], values = [];
+    usable.forEach(function (item) {
+      item.points.forEach(function (point) { times.push(new Date(point.ts).getTime()); values.push(point.total); });
+    });
+
+    var minT = Math.min.apply(null, times);
+    var maxT = Math.max.apply(null, times);
+    if (maxT === minT) { minT -= 1800000; maxT += 1800000; }  // 只有一个点时给个时间跨度
+    var minV = Math.min.apply(null, values);
+    var maxV = Math.max.apply(null, values);
+    // 余额几乎不变时也要有合理的纵轴范围，否则曲线会被放大成噪声
+    var spread = Math.max(maxV - minV, Math.max(maxV * 0.05, 0.5));
+    var lo = Math.max(0, minV - spread * 0.2);
+    var hi = maxV + spread * 0.2;
+
+    var xOf = function (ts) { return padL + ((ts - minT) / (maxT - minT)) * innerW; };
+    var yOf = function (value) { return padT + innerH - ((value - lo) / (hi - lo)) * innerH; };
+
+    var parts = [];
+    var balanceDigits = axisDecimals(hi);
+    [0, 0.5, 1].forEach(function (ratio) {
+      var y = yOf(lo + (hi - lo) * ratio);
+      parts.push('<line class="chart-gridline" x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>');
+      parts.push('<text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end">' +
+        esc(moneyShort(lo + (hi - lo) * ratio, usable[0].currency, balanceDigits)) + '</text>');
+    });
+
+    [0, 0.5, 1].forEach(function (ratio, index) {
+      var ts = minT + (maxT - minT) * ratio;
+      parts.push('<text x="' + xOf(ts).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' +
+        (index === 0 ? 'start' : index === 2 ? 'end' : 'middle') + '">' + esc(shortTime(ts)) + '</text>');
+    });
+
+    var legend = [];
+    usable.forEach(function (item, index) {
+      var color = PALETTE[index % PALETTE.length];
+      var path = item.points.map(function (point, i) {
+        return (i ? 'L' : 'M') + xOf(new Date(point.ts).getTime()).toFixed(1) + ' ' + yOf(point.total).toFixed(1);
+      }).join(' ');
+      parts.push('<path class="chart-line" d="' + path + '" stroke="' + color + '"/>');
+
+      item.points.forEach(function (point) {
+        parts.push('<circle class="chart-dot" cx="' + xOf(new Date(point.ts).getTime()).toFixed(1) + '" cy="' + yOf(point.total).toFixed(1) +
+          '" r="3" fill="' + color + '"><title>' +
+          esc(new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(point.ts)) +
+            '　' + moneyText(point.total, item.currency)) + '</title></circle>');
+      });
+
+      var last = item.points[item.points.length - 1];
+      legend.push('<span><i class="chart-legend-dot" style="background:' + color + '" aria-hidden="true"></i>' +
+        esc(labelOf(item)) + '　' + esc(moneyText(last.total, item.currency)) + '</span>');
+    });
+
+    return '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+      esc('余额变化曲线，' + usable.length + ' 条线，共 ' + times.length + ' 个记录点') + '">' +
+      parts.join('') + '</svg><div class="chart-legend">' + legend.join('') + '</div>';
+  }
+
+  /** 每日消耗柱状图 */
+  function dailyChartSvg(calendar, currency) {
+    var days = calendar.map(function (day) { return { date: day.date, amount: day.spend[currency] || 0 }; });
+    if (!days.length || !days.some(function (day) { return day.amount > 0; })) return '';
+
+    var W = 760, H = 170, padL = 54, padR = 12, padT = 14, padB = 28;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    var top = niceCeil(Math.max.apply(null, days.map(function (day) { return day.amount; })));
+    var step = innerW / days.length;
+    var barW = Math.max(3, Math.min(26, step * 0.6));
+    var total = days.reduce(function (sum, day) { return sum + day.amount; }, 0);
+    var parts = [];
+    var dayDigits = axisDecimals(top);
+
+    [0, 0.5, 1].forEach(function (ratio) {
+      var y = padT + innerH * (1 - ratio);
+      parts.push('<line class="chart-gridline" x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>');
+      parts.push('<text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end">' +
+        esc(moneyShort(top * ratio, currency, dayDigits)) + '</text>');
+    });
+
+    var labelEvery = Math.max(1, Math.ceil(days.length / 7));
+    days.forEach(function (day, index) {
+      var x = padL + step * index + (step - barW) / 2;
+      var height = day.amount > 0 ? Math.max(2, (day.amount / top) * innerH) : 0;
+      if (height > 0) {
+        parts.push('<rect class="chart-col" x="' + x.toFixed(1) + '" y="' + (padT + innerH - height).toFixed(1) +
+          '" width="' + barW.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="2"><title>' +
+          esc(day.date + '　' + moneyText(day.amount, currency)) + '</title></rect>');
+      }
+      if (index % labelEvery === 0 || index === days.length - 1) {
+        parts.push('<text x="' + (padL + step * index + step / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' +
+          esc(day.date.slice(5).replace('-', '/')) + '</text>');
+      }
+    });
+
+    parts.push('<line class="chart-axisline" x1="' + padL + '" y1="' + (padT + innerH) + '" x2="' + (W - padR) + '" y2="' + (padT + innerH) + '"/>');
+
+    return '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+      esc('每日消耗柱状图，' + days.length + ' 天，合计 ' + moneyText(total, currency)) + '">' +
+      parts.join('') + '</svg>';
+  }
+
+  function moneyMapText(map) {
+    var codes = Object.keys(map || {}).filter(function (code) { return Math.abs(map[code]) >= 0.005; });
+    if (!codes.length) return null;
+    return codes.map(function (code) { return moneyText(map[code], code); }).join(' + ');
+  }
+
+  function renameKey(id) {
+    var found = state.keys.filter(function (entry) { return entry.id === id; })[0];
+    return found ? found.name : (id ? id.slice(0, 8) : '已删除的密钥');
+  }
+
+  function renderHistory() {
+    var history = state.history;
+    if (!history) return;
+
+    var summary = history.summary;
+    el.historyPanel.hidden = false;
+    var spent = moneyMapText(summary.spend);
+    var added = moneyMapText(summary.topup);
+
+    // 只有一条记录时画不出曲线，给个明确的引导
+    if (summary.readings < 2) {
+      el.historyMeta.textContent = '已记录 ' + summary.readings + ' 条';
+      el.historyBody.innerHTML =
+        '<div class="history-empty">' +
+          (summary.readings === 0
+            ? '还没有查询记录。<strong>每次你主动查询余额都会自动记一条</strong>，攒够两条就能看到曲线。'
+            : '已经有 1 条记录了。过一会儿再查一次，就能看到余额变化和消耗曲线。') +
+        '</div>';
+      return;
+    }
+
+    var spanText = summary.spanHours >= 48
+      ? (summary.spanHours / 24).toFixed(1) + ' 天'
+      : summary.spanHours.toFixed(1) + ' 小时';
+    el.historyMeta.textContent = summary.readings + ' 条记录 · 覆盖 ' + spanText;
+
+    var blocks = [];
+
+    var currentText = moneyMapText(history.current);
+    blocks.push(
+      '<div class="history-stats">' +
+        '<div class="history-stat"><div class="history-stat-label">当前余额</div>' +
+          '<div class="history-stat-value">' + esc(currentText || '—') + '</div></div>' +
+        '<div class="history-stat"><div class="history-stat-label">期间消耗</div>' +
+          '<div class="history-stat-value down">' + esc(spent || '¥0.00') + '</div></div>' +
+        '<div class="history-stat"><div class="history-stat-label">期间充值</div>' +
+          '<div class="history-stat-value up">' + (added ? '+' + esc(added) : '—') + '</div></div>' +
+      '</div>'
+    );
+
+    var balanceSvg = balanceChartSvg(history.series, function (item) {
+      return renameKey(item.keyId) + '（' + item.currency + '）';
+    });
+    if (balanceSvg) {
+      blocks.push('<p class="history-sub">余额变化</p>' + balanceSvg);
+    }
+
+    // 每日消耗只在真的检测到消耗时才画
+    var chartCurrency = 'CNY';
+    var totals = {};
+    (history.calendar || []).forEach(function (day) {
+      Object.keys(day.spend).forEach(function (code) { totals[code] = (totals[code] || 0) + day.spend[code]; });
+    });
+    var ranked = Object.keys(totals).sort(function (a, b) { return totals[b] - totals[a]; });
+    if (ranked.length) chartCurrency = ranked[0];
+    else if (history.series.length) chartCurrency = history.series[0].currency;
+
+    var dailySvg = dailyChartSvg(history.calendar || [], chartCurrency);
+    if (dailySvg) {
+      blocks.push('<p class="history-sub">每日消耗（' + esc(currencySymbol(chartCurrency)) + '）</p>' + dailySvg);
+    }
+
+    if (history.events.length) {
+      var rows = history.events.slice(0, 12).map(function (event) {
+        var when = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          .format(new Date(event.ts));
+        var up = event.type === 'topup';
+        return '<div class="event-row">' +
+          '<span><span class="event-when">' + esc(when) + '</span>　<span class="event-name">' + esc(renameKey(event.keyId)) + '</span></span>' +
+          '<span class="event-amount ' + (up ? 'up' : 'down') + '">' + (up ? '+' : '−') + esc(moneyText(event.amount, event.currency)) + '</span>' +
+        '</div>';
+      }).join('');
+      blocks.push('<p class="history-sub">最近的余额变化</p><div class="event-list">' + rows + '</div>');
+    }
+
+    el.historyBody.innerHTML = blocks.join('');
+  }
+
+  function loadHistory() {
+    return request('/api/history?days=30')
+      .then(function (history) {
+        state.history = history;
+        if (history.keys) state.keys = history.keys;
+        renderHistory();
+      })
+      .catch(function () { /* 记录拿不到不影响余额主流程 */ });
+  }
+
+  /* ── 事件绑定 ─────────────────────────────────────── */
+
+  el.refreshAll.addEventListener('click', function () {
+    state.loadingAll = true;
+    render();
+    queryAll(true);
+  });
+
+  el.openAdd.addEventListener('click', openAddDialog);
+  el.cancelAdd.addEventListener('click', closeAddDialog);
+  el.addReveal.addEventListener('click', function () { toggleReveal(el.addKey, el.addReveal); });
+  el.tempReveal.addEventListener('click', function () { toggleReveal(el.tempKey, el.tempReveal); });
+
+  el.clearHistory.addEventListener('click', function () {
+    if (!window.confirm('确定清空全部查询记录吗？密钥和余额不受影响，但历史曲线会消失，且无法恢复。')) return;
+    request('/api/history', { method: 'DELETE', body: JSON.stringify({ confirm: true }) })
+      .then(function () {
+        toast('查询记录已清空');
+        return loadHistory();
+      })
+      .catch(function (err) { toast('清空失败：' + err.message, true); });
+  });
+
+  el.keyList.addEventListener('click', function (event) {
+    var button = event.target.closest('button[data-act]');
+    if (!button) return;
+    var id = button.getAttribute('data-id');
+    if (button.getAttribute('data-act') === 'query') queryOne(id);
+    else if (button.getAttribute('data-act') === 'delete') deleteKey(id, button.getAttribute('data-name'));
+  });
+
+  el.addForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    var key = el.addKey.value.trim();
+    el.addError.textContent = '';
+    if (!key) {
+      el.addError.textContent = '请填写 API Key。';
+      el.addKey.focus();
+      return;
+    }
+    if (key.length < 16) {
+      el.addError.textContent = '这个 Key 看起来太短了，请检查是否复制完整。';
+      el.addKey.focus();
+      return;
+    }
+    el.saveAdd.disabled = true;
+    el.saveAdd.textContent = '保存中…';
+    request('/api/keys', { method: 'POST', body: JSON.stringify({ name: el.addName.value.trim(), key: key }) })
+      .then(function (body) {
+        closeAddDialog();
+        return loadState().then(function () {
+          render();
+          toast('已添加「' + body.key.name + '」，正在查询…');
+          return queryOne(body.key.id);
+        });
+      })
+      .catch(function (err) { el.addError.textContent = err.message; })
+      .then(function () {
+        el.saveAdd.disabled = false;
+        el.saveAdd.textContent = '保存并查询';
+      });
+  });
+
+  el.addDialog.addEventListener('cancel', function (event) {
+    event.preventDefault();
+    closeAddDialog();
+  });
+
+  el.tempForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    var key = el.tempKey.value.trim();
+    el.tempError.textContent = '';
+    el.tempResult.innerHTML = '';
+    if (!key) {
+      el.tempError.textContent = '请填写 API Key。';
+      el.tempKey.focus();
+      return;
+    }
+    el.tempSubmit.disabled = true;
+    el.tempSubmit.textContent = '查询中…';
+    request('/api/query-raw', { method: 'POST', body: JSON.stringify({ key: key }) })
+      .then(function (body) {
+        var primary = primaryBalance(body);
+        if (!body.ok) {
+          el.tempResult.innerHTML = '<p class="err">' + esc(body.error) + '</p>';
+        } else if (!primary) {
+          el.tempResult.innerHTML = '<p class="err">接口未返回余额明细。</p>';
+        } else {
+          el.tempResult.innerHTML =
+            '<div style="margin-top:14px">' +
+              '<div class="balance' + (primary.total < state.threshold ? ' low' : '') + '">' + moneyHtml(primary.total, primary.currency) + '</div>' +
+              '<div class="legend" style="margin-top:8px">' +
+                '<span class="g"><i aria-hidden="true"></i>赠金 ' + moneyText(primary.granted, primary.currency) + '</span>' +
+                '<span class="t"><i aria-hidden="true"></i>充值 ' + moneyText(primary.toppedUp, primary.currency) + '</span>' +
+                '<span>' + esc(body.masked) + '</span>' +
+              '</div>' +
+            '</div>';
+        }
+        el.tempKey.value = '';
+      })
+      .catch(function (err) { el.tempError.textContent = err.message; })
+      .then(function () {
+        el.tempSubmit.disabled = false;
+        el.tempSubmit.textContent = '查询';
+      });
+  });
+
+  el.editThreshold.addEventListener('click', function () {
+    var input = window.prompt('低于这个金额时高亮提醒（元）：', String(state.threshold));
+    if (input === null) return;
+    var value = Number(input);
+    if (!Number.isFinite(value) || value < 0) { toast('请输入一个不小于 0 的数字', true); return; }
+    state.threshold = value;
+    try { window.localStorage.setItem(STORAGE_KEY, String(value)); } catch (e) { /* 隐私模式忽略 */ }
+    render();
+    toast('低余额线已设为 ' + moneyText(value, 'CNY'));
+  });
+
+  /* ── 自动刷新 ─────────────────────────────────────── */
+
+  function scheduleRefresh() {
+    window.setInterval(function () {
+      if (!el.autoRefresh.checked) return;
+      if (document.visibilityState !== 'visible') return;
+      if (!state.keys.length) return;
+      // 自动刷新不写记录，否则挂一天就是上千条噪声
+      queryAll(false);
+    }, REFRESH_MS);
+  }
+
+  var booted = false;
+  function boot() {
+    if (booted) return;
+    booted = true;
+    try {
+      var saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved !== null && Number.isFinite(Number(saved))) state.threshold = Number(saved);
+    } catch (e) { /* 忽略 */ }
+
+    loadState()
+      .then(function () {
+        render();
+        if (state.keys.length) {
+          state.loadingAll = true;
+          render();
+          return queryAll(true);
+        }
+        return loadHistory();
+      })
+      .catch(function (err) { toast('无法连接本地服务：' + err.message, true); });
+
+    scheduleRefresh();
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && el.autoRefresh.checked) {
+      var stale = !state.lastUpdated || (Date.now() - state.lastUpdated.getTime() > REFRESH_MS);
+      if (stale && state.keys.length) queryAll(false);
+    }
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
