@@ -17,6 +17,41 @@
 - **数据可视化** —— 余额变化曲线、每日消耗柱状图、最近的余额变化明细
 - **密钥只显示掩码** —— 完整密钥不打印、不写日志、不进网页响应
 - **只监听 127.0.0.1** —— 校验 `Host` 和 `Origin`，挡住跨站调用和 DNS 重绑定
+- **密钥不可能被提交** —— 三道机器锁，手滑也传不上去（见下）
+
+---
+
+## 密钥安全：只上传工具，密钥永远留在本地
+
+这个仓库里**没有、也不会有**你的密钥。这不是靠"记得别提交"，而是三道锁锁死的：
+
+### 第一道：`.gitignore`
+
+`data/`、`keys.json`、`history.jsonl`、`.env`、`*.pem` 等一律不跟踪。
+
+### 第二道：pre-commit 钩子（提交时自动拦截）
+
+`.githooks/pre-commit` 会在每次 `git commit` 前扫描暂存区：
+
+- 暂存内容里出现 `sk-xxxxx…` 这类密钥 → **拒绝提交**
+- 暂存了 `data/`、`keys.json`、`.env`、`*.pem` 这类路径 → **拒绝提交**
+- 甚至连 `git add -f data/keys.json` 强行绕过 `.gitignore` 也会被拦下
+
+启用（克隆后执行一次，或 `npm install` 会自动跑）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+### 第三道：CI + 本地随时可查
+
+```bash
+npm run check-secrets     # 扫跟踪的文件 + 全部提交历史
+```
+
+GitHub Actions 里也独立跑一遍（`secrets` job），一旦有密钥混进任何一次提交，构建直接变红。
+
+> 三道锁都是拦"往仓库里写"的动作。你自己电脑上的 `data/keys.json` 不受任何影响，正常读写。
 
 ---
 
@@ -163,7 +198,7 @@ node ds-balance.mjs --json | jq -e '[.results[].balances[].total] | min > 10' > 
 - 目录权限 `700`，只有你自己的账户能读。
 - 完整密钥不会出现在屏幕、日志或网页响应里，一律显示成 `sk-••••••c3d4`。
 - 记录是追加写入的 JSONL，写一半断电也不会损坏已有数据；解析不了的行会被跳过。
-- **`data/` 已加进 `.gitignore`，不会被提交到 Git。**
+- **`data/` 已加进 `.gitignore`，且额外有 pre-commit 钩子和 CI 双重拦截。**
 - 想换存储位置，设置环境变量 `DS_BALANCE_HOME`。
 
 > 这是给本机用的私人工具，密钥以明文存在 `data/keys.json`。电脑多人共用的话，建议改用系统钥匙串，或者只用「临时查询」模式。
@@ -199,7 +234,7 @@ node ds-balance.mjs --json | jq -e '[.results[].balances[].total] | min > 10' > 
 node tests/self-test.mjs
 ```
 
-用本地 mock 接口跑全套自动化测试，**不消耗真实额度**。当前 109 项，覆盖：
+用本地 mock 接口跑全套自动化测试，**不消耗真实额度**。当前 117 项，覆盖：
 
 - CLI 各分支、密钥增删改查、文件权限
 - 查询记录的写入、去重、`--no-record`
@@ -207,6 +242,7 @@ node tests/self-test.mjs
 - Web 全部接口、跨站与 DNS 重绑定防护
 - 网页界面的**实际渲染结果**（用真实 `ui.html` 脚本 + 极简 DOM 在 Node 里跑）
 - **CSS 类名冲突审查**
+- **密钥泄露检查**（跟踪文件 + 全部提交历史 + 钩子是否启用）
 
 ### 关于 CSS 审查
 
@@ -220,15 +256,18 @@ node tests/self-test.mjs
 
 ```
 .
-├── ds-balance.mjs        主程序（命令行 + 本地服务，零依赖）
-├── ui.html               网页界面（样式和脚本都内联，单文件）
-├── 启动网页版.command      macOS 双击启动
-├── screenshot.png        界面截图
+├── ds-balance.mjs             主程序（命令行 + 本地服务，零依赖）
+├── ui.html                    网页界面（样式和脚本都内联，单文件）
+├── 启动网页版.command           macOS 双击启动
+├── screenshot.png             界面截图
+├── .githooks/pre-commit       提交前拦截密钥
+├── .github/workflows/test.yml CI：自测 + 密钥扫描
 ├── tests/
-│   ├── self-test.mjs     自动化测试
-│   └── css-audit.mjs     CSS 类名冲突审查
-├── data/                 密钥与记录（首次运行后生成，已 gitignore）
-├── LICENSE               MIT
+│   ├── self-test.mjs          自动化测试
+│   ├── check-secrets.mjs      密钥泄露检查
+│   └── css-audit.mjs          CSS 类名冲突审查
+├── data/                      密钥与记录（首次运行后生成，不入库）
+├── LICENSE                    MIT
 └── README.md
 ```
 

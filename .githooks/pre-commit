@@ -1,0 +1,7 @@
+#!/bin/sh
+# 提交前拦截：任何把密钥或本机数据写进仓库的操作都会被拒绝。
+# 由 `git config core.hooksPath .githooks` 启用（npm install 会自动设置）。
+#
+# 万一确实要绕过（不推荐），用 git commit --no-verify。
+
+exec node "$(dirname "$0")/../tests/check-secrets.mjs" --staged

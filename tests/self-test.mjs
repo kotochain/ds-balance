@@ -9,6 +9,8 @@
 
 import { createServer, request as httpRequest } from 'node:http';
 import { spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -627,6 +629,48 @@ try {
       .replace('header.topbar {', 'header.bar {')
       .replace('.meter { display: flex;', '.bar { display: flex;');
     check('审查能抓到已修复的类名冲突', auditCssClasses(buggy).problems.length > 0);
+  }
+
+  section('仓库安全 · 密钥绝不能进仓库');
+  {
+    // 设计前提：上传的只有工具，密钥和记录永远留在本机。
+    // 这里验证这个前提是被机器保证的，而不是靠人记得小心。
+    const runScanner = (args) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [path.join(ROOT, 'tests/check-secrets.mjs'), ...args], {
+        cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let out = '';
+      child.stdout.on('data', (c) => { out += c; });
+      child.stderr.on('data', (c) => { out += c; });
+      child.on('close', (code) => resolve({ code, out }));
+    });
+
+    const tree = await runScanner([]);
+    check('仓库跟踪的文件里没有密钥', tree.code === 0, tree.out);
+    const history = await runScanner(['--history']);
+    check('全部提交历史里没有密钥', history.code === 0, history.out);
+
+    const tracked = (await run(['--list'])).code === 0
+      ? execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files'], { cwd: ROOT, encoding: 'utf8' })
+      : '';
+    check('版本库里没有任何 data/ 文件',
+      !tracked.split('\n').some((file) => /(^|\/)data\//.test(file)),
+      tracked.split('\n').filter((f) => /(^|\/)data\//.test(f)).join(', '));
+    check('版本库里没有密钥或记录文件',
+      !tracked.split('\n').some((file) => /(keys\.json|history\.jsonl|\.env)/.test(file)));
+
+    // 忽略规则
+    const ignored = execFileSync('git', ['check-ignore', 'data/keys.json', 'keys.json', '.env'], {
+      cwd: ROOT, encoding: 'utf8',
+    });
+    check('.gitignore 覆盖了常见密钥文件名', ignored.split('\n').filter(Boolean).length === 3, ignored);
+
+    // pre-commit 钩子
+    const hookPath = path.join(ROOT, '.githooks/pre-commit');
+    check('pre-commit 钩子存在', existsSync(hookPath));
+    check('pre-commit 钩子可执行', ((await stat(hookPath)).mode & 0o111) !== 0);
+    const hooksPath = execFileSync('git', ['config', 'core.hooksPath'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    check('钩子已启用（core.hooksPath）', hooksPath === '.githooks', hooksPath);
   }
 
   section('Web 服务 · 安全防护');

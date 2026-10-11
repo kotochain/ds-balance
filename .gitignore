@@ -1,13 +1,27 @@
-# 本机数据：密钥和查询记录，绝不入库
+# ── 本机数据：密钥和查询记录，绝不入库 ──────────────────
+# 这个工具只上传「工具」，密钥和记录永远留在你自己的电脑上。
 data/
+keys.json
+history.jsonl
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
 
-# 依赖与日志
+# 双保险：万一上面的规则被改动，pre-commit 钩子和 CI 还会再拦一次
+# （见 .githooks/pre-commit 与 tests/check-secrets.mjs）
+
+# ── 依赖与日志 ──────────────────────────────────────
 node_modules/
 *.log
+npm-debug.log*
 
-# 系统与编辑器
+# ── 系统与编辑器 ────────────────────────────────────
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 *.swp
+*.tmp

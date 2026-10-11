@@ -14,6 +14,8 @@ jobs:
         node-version: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 密钥检查需要完整历史
 
       - uses: actions/setup-node@v4
         with:
@@ -28,12 +30,30 @@ jobs:
           node --check ds-balance.mjs
           node --check tests/self-test.mjs
           node --check tests/css-audit.mjs
+          node --check tests/check-secrets.mjs
 
-      # 兜底：确保没有任何密钥文件被提交进来
-      - name: 确认没有提交本机数据
+  secrets:
+    # 独立成一个 job：一旦有密钥混进来，这里必须红，不能和普通测试混在一起
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 扫描仓库文件
+        run: node tests/check-secrets.mjs
+
+      - name: 扫描全部提交历史
+        run: node tests/check-secrets.mjs --history
+
+      - name: 兜底确认本机数据未入库
         run: |
-          if git ls-files | grep -qE 'data/(keys\.json|history\.jsonl)'; then
-            echo "::error::检测到 data/ 下的本机数据被提交，请从版本库移除"
+          if git ls-files | grep -qE '(^|/)(data/|keys\.json$|history\.jsonl$|\.env)'; then
+            echo "::error::检测到密钥或记录文件被提交，请从版本库移除"
             exit 1
           fi
           echo "OK：版本库里没有密钥或记录文件"
