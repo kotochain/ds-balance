@@ -276,6 +276,7 @@ node tests/self-test.mjs
 ├── ui.html                    网页界面（样式和脚本都内联，单文件）
 ├── 启动网页版.command           macOS 双击启动
 ├── screenshot.png             界面截图
+├── AGENTS.md                  给 AI 代理 / 协作者的约定
 ├── .githooks/pre-commit       提交前拦截密钥
 ├── .github/workflows/test.yml CI：自测 + 密钥扫描
 ├── tests/
