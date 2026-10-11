@@ -19,7 +19,7 @@
     "serve": "node ds-balance.mjs --serve --open",
     "history": "node ds-balance.mjs --history",
     "test": "node tests/self-test.mjs",
-    "check-secrets": "node tests/check-secrets.mjs && node tests/check-secrets.mjs --history",
+    "check-secrets": "node tests/check-secrets.mjs && node tests/check-secrets.mjs --history && node tests/check-secrets.mjs --objects",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "keywords": [

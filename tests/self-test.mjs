@@ -649,6 +649,10 @@ try {
     check('仓库跟踪的文件里没有密钥', tree.code === 0, tree.out);
     const history = await runScanner(['--history']);
     check('全部提交历史里没有密钥', history.code === 0, history.out);
+    // git add 会立刻把内容写进对象库，哪怕 commit 被钩子拦下，
+    // 所以游离对象也必须单独扫一遍
+    const objects = await runScanner(['--objects']);
+    check('对象库里（含游离对象）没有密钥', objects.code === 0, objects.out);
 
     const tracked = (await run(['--list'])).code === 0
       ? execFileSync('git', ['-c', 'core.quotepath=false', 'ls-files'], { cwd: ROOT, encoding: 'utf8' })

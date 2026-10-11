@@ -46,10 +46,26 @@ git config core.hooksPath .githooks
 ### 第三道：CI + 本地随时可查
 
 ```bash
-npm run check-secrets     # 扫跟踪的文件 + 全部提交历史
+npm run check-secrets     # 扫跟踪的文件 + 提交历史 + 整个对象库
 ```
 
 GitHub Actions 里也独立跑一遍（`secrets` job），一旦有密钥混进任何一次提交，构建直接变红。
+
+### 一个容易忽略的坑：`git add` 就已经写进 .git 了
+
+`git add` 会**立刻**把文件内容写进 `.git/objects`，即使随后的 `git commit` 被钩子拒绝、或者你马上 `git reset` 撤销。
+
+也就是说「提交被拦下了」≠「内容没进 .git」。这种游离对象（unreachable）**push 不出去**（push 只发送从分支可达的对象），但它会一直躺在你本地。想查出来：
+
+```bash
+node tests/check-secrets.mjs --objects     # 扫整个对象库，含游离对象
+```
+
+想清掉：
+
+```bash
+git reflog expire --expire=now --all && git gc --prune=now
+```
 
 > 三道锁都是拦"往仓库里写"的动作。你自己电脑上的 `data/keys.json` 不受任何影响，正常读写。
 
@@ -234,7 +250,7 @@ node ds-balance.mjs --json | jq -e '[.results[].balances[].total] | min > 10' > 
 node tests/self-test.mjs
 ```
 
-用本地 mock 接口跑全套自动化测试，**不消耗真实额度**。当前 117 项，覆盖：
+用本地 mock 接口跑全套自动化测试，**不消耗真实额度**。当前 118 项，覆盖：
 
 - CLI 各分支、密钥增删改查、文件权限
 - 查询记录的写入、去重、`--no-record`
@@ -242,7 +258,7 @@ node tests/self-test.mjs
 - Web 全部接口、跨站与 DNS 重绑定防护
 - 网页界面的**实际渲染结果**（用真实 `ui.html` 脚本 + 极简 DOM 在 Node 里跑）
 - **CSS 类名冲突审查**
-- **密钥泄露检查**（跟踪文件 + 全部提交历史 + 钩子是否启用）
+- **密钥泄露检查**（跟踪文件 + 提交历史 + 对象库游离副本 + 钩子是否启用）
 
 ### 关于 CSS 审查
 

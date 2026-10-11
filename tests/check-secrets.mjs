@@ -176,12 +176,67 @@ function runHistory() {
   return { findings, scanned: revs.length, skipped: [] };
 }
 
+/**
+ * 扫描对象库里的**每一个** blob，包括游离对象。
+ *
+ * 为什么必须单独扫：git add 会立刻把内容写进对象库，哪怕随后的 commit 被钩子拦下。
+ * 也就是说「提交被拒绝了」不等于「内容没进 .git」。这种游离副本 push 不出去，
+ * 但会一直躺在本地，必须能查出来并清掉。
+ */
+function runObjects() {
+  let buffer;
+  try {
+    buffer = execFileSync('git', ['-c', 'core.quotepath=false', 'cat-file', '--batch-all-objects', '--batch'], {
+      cwd: ROOT, maxBuffer: 256 * 1024 * 1024,
+    });
+  } catch (err) {
+    throw new Error(`读取对象库失败：${err.message}`);
+  }
+
+  const findings = [];
+  const skipped = [];
+  let scanned = 0;
+  let position = 0;
+
+  while (position < buffer.length) {
+    const newline = buffer.indexOf(0x0a, position);
+    if (newline === -1) break;
+    const [oid, type, sizeText] = buffer.toString('utf8', position, newline).split(' ');
+    const size = Number(sizeText);
+    if (!Number.isFinite(size)) break;
+
+    const start = newline + 1;
+    const end = start + size;
+
+    if (type === 'blob' && size > 0) {
+      if (size > MAX_SCAN_BYTES) {
+        skipped.push(`对象 ${oid.slice(0, 8)}（${Math.round(size / 1024)}KB 过大）`);
+      } else {
+        const content = buffer.toString('utf8', start, end);
+        if (content.includes('\u0000')) {
+          skipped.push(`对象 ${oid.slice(0, 8)}（二进制）`);
+        } else {
+          scanned += 1;
+          scanText(content, `对象库 ${oid.slice(0, 8)}`, findings);
+        }
+      }
+    }
+    position = end + 1;  // 跳过内容后面的换行
+  }
+
+  return { findings, scanned, skipped };
+}
+
 const mode = process.argv.includes('--staged') ? 'staged'
+  : process.argv.includes('--objects') ? 'objects'
   : process.argv.includes('--history') ? 'history'
   : 'tree';
 
-const { findings, scanned, skipped = [] } = { staged: runStaged, history: runHistory, tree: runTree }[mode]();
-const where = { staged: '暂存区', history: '提交历史', tree: '仓库跟踪的文件' }[mode];
+const runs = { staged: runStaged, history: runHistory, tree: runTree, objects: runObjects };
+const { findings, scanned, skipped = [] } = runs[mode]();
+const where = {
+  staged: '暂存区', history: '提交历史', tree: '仓库跟踪的文件', objects: '整个对象库（含游离对象）',
+}[mode];
 
 if (!findings.length) {
   console.log(`\u001b[32m✓\u001b[0m 密钥检查通过（${where}，${scanned} 项）`);
@@ -199,5 +254,8 @@ console.error(`
 密钥和查询记录应该只留在本机 data/ 目录里，不要提交进仓库。
   · 如果这是误报，在该行加注释 ${ALLOW_MARK} 即可放行
   · 如果确实提交了密钥，请立刻去 platform.deepseek.com 吊销并重新生成
+  · 如果命中的是「对象库」里的游离副本（git add 过但提交被拦），
+    它 push 不出去，但应该清掉：
+      git reflog expire --expire=now --all && git gc --prune=now
 `);
 process.exit(1);

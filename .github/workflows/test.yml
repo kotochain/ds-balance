@@ -50,6 +50,10 @@ jobs:
       - name: 扫描全部提交历史
         run: node tests/check-secrets.mjs --history
 
+      # git add 会立刻写入对象库，提交被拦也会留下游离副本，必须单独查
+      - name: 扫描对象库（含游离对象）
+        run: node tests/check-secrets.mjs --objects
+
       - name: 兜底确认本机数据未入库
         run: |
           if git ls-files | grep -qE '(^|/)(data/|keys\.json$|history\.jsonl$|\.env)'; then
