@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # 自测全部走本地 mock 接口，不需要任何密钥，也不消耗真实额度
+      - name: 运行自测
+        run: node tests/self-test.mjs
+
+      - name: 检查语法
+        run: |
+          node --check ds-balance.mjs
+          node --check tests/self-test.mjs
+          node --check tests/css-audit.mjs
+
+      # 兜底：确保没有任何密钥文件被提交进来
+      - name: 确认没有提交本机数据
+        run: |
+          if git ls-files | grep -qE 'data/(keys\.json|history\.jsonl)'; then
+            echo "::error::检测到 data/ 下的本机数据被提交，请从版本库移除"
+            exit 1
+          fi
+          echo "OK：版本库里没有密钥或记录文件"
