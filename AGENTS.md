@@ -40,7 +40,7 @@ git reflog expire --expire=now --all && git gc --prune=now   # 清理游离副�
 ## 第二条：改完必须跑测试
 
 ```bash
-node tests/self-test.mjs      # 118 项，全走本地 mock，不消耗真实额度
+node tests/self-test.mjs      # 141 项，全走本地 mock，不消耗真实额度
 ```
 
 测试结构：
@@ -53,7 +53,19 @@ node tests/self-test.mjs      # 118 项，全走本地 mock，不消耗真实额
 新增功能请补对应断言。**测试要能真的失败**：给审查类检查加一条「注入已知错误应被抓到」的自检，
 避免它退化成一个永远通过的摆设。
 
-## 第三条：CSS 类名不要重名
+## 第三条：图表约定
+
+- 桶的时间边界必须按**本地时区**对齐。直接用 `Math.floor(now / 86400000)` 得到的是 UTC 零点，
+  在东八区就是本地 08:00，`start`/`end` 会把区间显示错。
+- 悬停交互用**事件委托**：所有 `querySelector` 都写在事件回调里。
+  渲染函数自己不能碰 DOM 查询 API，否则测试环境（只有 `innerHTML` 的 DOM 桩）会直接抛错。
+- 折线图的悬停坐标要把 SVG 用户单位换算成 CSS 像素：
+  先取 `svg.getBoundingClientRect()`，再按 `rect.width / viewBox.width` 缩放。
+- 截图验证时注意 `Page.captureScreenshot` 的 `captureBeyondViewport: true` 会重排页面并
+  **丢掉悬停等瞬时状态**；要截悬停效果必须只截视口。
+  另外 `clip` 用的是**页面坐标**，不是视口坐标。
+
+## 第四条：CSS 类名不要重名
 
 `tests/css-audit.mjs` 会拦截「裸类名泄漏」：同一个类既写了 `.foo { ... }`，
 又用在别的元素上（`header.foo`）或别人的子树里（`.other .foo`）。
@@ -64,7 +76,7 @@ node tests/self-test.mjs      # 118 项，全走本地 mock，不消耗真实额
 
 写新样式时：一个类名只用一种选择器形式，不要既裸写又加限定。
 
-## 第四条：数据格式
+## 第五条：数据格式
 
 `data/history.jsonl` 是追加写入的 JSONL，一行一条读数：
 
@@ -78,7 +90,7 @@ node tests/self-test.mjs      # 118 项，全走本地 mock，不消耗真实额
   官方没有用量接口，这是唯一可行的方法 —— 不要在文档里把它说成「精确账单」
 - 写文档示例时用上面这种假数值，**不要贴真实余额和时间戳**
 
-## 第五条：网页版的边界
+## 第六条：网页版的边界
 
 - 只监听 `127.0.0.1`
 - 校验 `Host`（防 DNS 重绑定）和 `Origin`（防跨站调用）

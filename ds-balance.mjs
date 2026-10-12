@@ -234,11 +234,22 @@ function addInto(target, currency, amount) {
   target[currency] = (target[currency] ?? 0) + amount;
 }
 
+/** 本地时区的 YYYY-MM-DDTHH，小时桶用。 */
+function localHourKey(date) {
+  const d = new Date(date);
+  return `${localDayKey(d)}T${String(d.getHours()).padStart(2, '0')}`;
+}
+
 /**
  * 把读数整理成网页界面要的画图数据。
  * 相邻两条读数的差：下降 = 消耗，上升 = 充值或赠金到账。
+ *
+ * 同时产出「按天」和「按小时」两套桶：
+ *   按天   —— 看长期趋势，窗口 days 天
+ *   按小时 —— 看最近几小时花在哪了，窗口 hours 小时
+ * 界面上可以切换，切换时折线图的可视窗口也跟着变。
  */
-function computeHistory(readings, { days = 30, now = new Date() } = {}) {
+function computeHistory(readings, { days = 30, hours = 72, now = new Date() } = {}) {
   const groups = new Map();
   for (const item of readings) {
     const groupKey = `${item.keyId}|${item.currency}`;
@@ -280,28 +291,67 @@ function computeHistory(readings, { days = 30, now = new Date() } = {}) {
     if (lastPoint) addInto(current, group.currency, lastPoint.total);
   }
 
-  // 柱状图用的连续日序列
-  const byDay = new Map();
-  for (const event of events) {
-    const key = localDayKey(event.ts);
-    if (!byDay.has(key)) byDay.set(key, { date: key, spend: {}, topup: {} });
-    addInto(event.type === 'spend' ? byDay.get(key).spend : byDay.get(key).topup, event.currency, event.amount);
-  }
-  const calendar = [];
-  if (readings.length) {
-    const firstDay = localDayKey(readings[0].ts);
-    for (let i = days - 1; i >= 0; i -= 1) {
-      const date = new Date(nowMs - i * 86400000);
-      const key = localDayKey(date);
-      // 开始记录之前的日子是「未知」而不是「没消耗」，不画
-      if (key < firstDay) continue;
-      const bucket = byDay.get(key);
-      calendar.push({ date: key, spend: bucket?.spend ?? {}, topup: bucket?.topup ?? {} });
-    }
-  }
-
   const first = readings.length ? new Date(readings[0].ts) : null;
   const last = readings.length ? new Date(readings[readings.length - 1].ts) : null;
+
+  /**
+   * 按给定的时间步长切桶。开始记录之前的时段是「未知」而不是「没消耗」，直接不产出。
+   *
+   * 注意 anchor 必须是**本地**的桶边界：直接用 Math.floor(now / 86400000) 得到的是
+   * UTC 零点，在东八区就是本地 08:00，算出来的 start/end 会把区间显示错。
+   *
+   * @param {number} stepMs 桶宽（一天或一小时）
+   * @param {number} count  桶数量
+   * @param {(date: Date) => string} keyOf 时间 → 桶 key
+   * @param {number} anchor 当前所在桶的本地起始时刻
+   */
+  const buildBuckets = (stepMs, count, keyOf, anchor) => {
+    if (!readings.length) return [];
+    const byBucket = new Map();
+    for (const event of events) {
+      const key = keyOf(event.ts);
+      if (!byBucket.has(key)) byBucket.set(key, { key, spend: {}, topup: {} });
+      addInto(event.type === 'spend' ? byBucket.get(key).spend : byBucket.get(key).topup, event.currency, event.amount);
+    }
+
+    const firstKey = keyOf(first);
+    const buckets = [];
+    for (let i = count - 1; i >= 0; i -= 1) {
+      const start = new Date(anchor - i * stepMs);
+      const key = keyOf(start);
+      if (key < firstKey) continue;  // 还没开始记录的时段不画
+      const bucket = byBucket.get(key);
+      buckets.push({
+        key,
+        start: start.toISOString(),
+        end: new Date(start.getTime() + stepMs).toISOString(),
+        spend: bucket?.spend ?? {},
+        topup: bucket?.topup ?? {},
+      });
+    }
+    return buckets;
+  };
+
+  // 本地桶边界
+  const localAnchor = (unit) => {
+    const d = new Date(nowMs);
+    if (unit === 'day') d.setHours(0, 0, 0, 0);
+    else d.setMinutes(0, 0, 0);
+    return d.getTime();
+  };
+  const dayAnchor = localAnchor('day');
+  const hourAnchor = localAnchor('hour');
+
+  const buckets = {
+    day: buildBuckets(86400000, days, localDayKey, dayAnchor),
+    hour: buildBuckets(3600000, hours, localHourKey, hourAnchor),
+  };
+
+  // 折线图在两种粒度下的可视窗口
+  const windows = {
+    day: { from: new Date(dayAnchor - (days - 1) * 86400000).toISOString(), to: new Date(nowMs).toISOString() },
+    hour: { from: new Date(hourAnchor - (hours - 1) * 3600000).toISOString(), to: new Date(nowMs).toISOString() },
+  };
 
   return {
     series: series.map((group) => ({
@@ -309,10 +359,14 @@ function computeHistory(readings, { days = 30, now = new Date() } = {}) {
       currency: group.currency,
       points: group.points.map((point) => ({ ts: point.ts.toISOString(), total: point.total })),
     })),
-    events: events.slice(-200).reverse(),
-    calendar,
+    events: events.slice(-500).reverse(),
+    buckets,
+    windows,
+    // 兼容旧字段：按天的桶
+    calendar: buckets.day,
     current,
     days,
+    hours,
     summary: {
       readings: readings.length,
       first: first ? first.toISOString() : null,

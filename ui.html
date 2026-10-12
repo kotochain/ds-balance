@@ -234,7 +234,8 @@
   .history-stat-value { margin-top: 4px; font-size: 20px; font-weight: 620; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
   .history-stat-value.up { color: var(--ok); }
   .history-stat-value.down { color: #ff9ba0; }
-  .history-sub { margin: 24px 0 0; font-size: 13px; font-weight: 600; }
+  /* 下边留出空隙：图表聚焦时 outline-offset 6px 会向上画出框，贴着文字会压住标题 */
+  .history-sub { margin: 24px 0 10px; font-size: 13px; font-weight: 600; }
   .history-empty { padding: 30px 20px; text-align: center; color: var(--muted); font-size: 13.5px; border: 1px dashed var(--border-hi); border-radius: 10px; }
 
   .chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
@@ -248,6 +249,39 @@
   .chart-col-topup { fill: #2f7d4f; }
   .chart-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .chart-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+
+  /* 图表容器：十字线、标记点和浮层都相对它定位 */
+  .chart-frame { position: relative; }
+  .chart-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 8px; }
+  .chart-cross { position: absolute; width: 1px; background: var(--border-hi); pointer-events: none; }
+  .chart-marker {
+    position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--panel);
+    box-shadow: 0 0 0 1px var(--accent); pointer-events: none;
+  }
+  .chart-tip {
+    position: absolute; z-index: 5; pointer-events: none;
+    padding: 9px 12px; border-radius: 10px; white-space: nowrap;
+    background: #1b2436; border: 1px solid var(--border-hi);
+    box-shadow: 0 14px 40px -12px #000;
+    font-size: 12.5px; line-height: 1.55;
+  }
+  .chart-tip-when { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .chart-tip-row { display: flex; align-items: center; margin-top: 3px; color: var(--muted); }
+  .chart-tip-value { font-weight: 660; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .chart-tip-delta { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .chart-tip-delta.up { color: var(--ok); }
+  .chart-tip-delta.down { color: #ff9ba0; }
+
+  .history-grain { display: inline-flex; gap: 2px; padding: 2px; background: #0e1421; border: 1px solid var(--border); border-radius: 9px; }
+  .history-grain button {
+    background: none; border: none; border-radius: 7px; padding: 5px 12px;
+    font-size: 12.5px; color: var(--muted);
+    transition: background-color .15s ease, color .15s ease;
+  }
+  .history-grain button:hover { background: #1b2436; color: var(--text); }
+  .history-grain button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+  .history-sub-note { margin-left: 10px; font-weight: 400; font-size: 11.5px; color: var(--faint); }
 
   .event-list { margin-top: 10px; }
   .event-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -318,6 +352,10 @@
       <div class="history-head">
         <h2 class="history-title" id="historyTitle">查询记录</h2>
         <span class="history-meta" id="historyMeta">…</span>
+        <div class="history-grain" role="group" aria-label="时间粒度">
+          <button type="button" id="grainDay" aria-pressed="true">按天</button>
+          <button type="button" id="grainHour" aria-pressed="false">按小时</button>
+        </div>
         <button type="button" class="danger" id="clearHistory">清空记录</button>
       </div>
       <div id="historyBody" aria-live="polite"></div>
@@ -383,7 +421,8 @@
     loadingAll: false,
     threshold: 10,
     lastUpdated: null,
-    history: null
+    history: null,
+    grain: 'day'
   };
 
   var el = {
@@ -402,6 +441,8 @@
     historyMeta: document.getElementById('historyMeta'),
     historyBody: document.getElementById('historyBody'),
     clearHistory: document.getElementById('clearHistory'),
+    grainDay: document.getElementById('grainDay'),
+    grainHour: document.getElementById('grainHour'),
     addDialog: document.getElementById('addDialog'),
     addForm: document.getElementById('addForm'),
     addName: document.getElementById('addName'),
@@ -749,24 +790,94 @@
     return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(ts));
   }
 
-  /** 余额变化折线：每个密钥一条线 */
-  function balanceChartSvg(series, labelOf) {
-    var usable = series.filter(function (item) { return item.points.length > 0; });
-    if (!usable.length) return '';
+  /* ── 图表：粒度切换 + 悬停查看精确节点 ─────────────
+     悬停用事件委托实现：所有 DOM 查询都发生在事件回调里，
+     这样在没有真实 DOM 的测试环境（只有 innerHTML 的桩）下也能安全渲染。
+     -------------------------------------------------- */
 
-    var W = 760, H = 200, padL = 58, padR = 14, padT = 16, padB = 28;
+  var CHART_HITS = [];                              // 每次渲染重建
+  var GRAIN_KEY = 'ds-balance:grain';
+
+  function currentGrain() {
+    return state.grain === 'hour' ? 'hour' : 'day';
+  }
+
+  function timeAxisLabel(ts, grain) {
+    if (grain === 'hour') {
+      return new Intl.DateTimeFormat('zh-CN', {
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date(ts));
+    }
+    return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(ts));
+  }
+
+  function preciseStamp(ts) {
+    return new Intl.DateTimeFormat('zh-CN', {
+      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(ts));
+  }
+
+  function bucketRangeText(start, end) {
+    var fmt = new Intl.DateTimeFormat('zh-CN', {
+      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    return fmt.format(new Date(start)) + ' – ' + fmt.format(new Date(end));
+  }
+
+  /** 生成均匀分布的时间刻度。首尾用 start/end 锚点，避免文字被裁。 */
+  function timeTicks(minT, maxT, grain, padL, innerW, count) {
+    var ticks = [];
+    for (var i = 0; i < count; i += 1) {
+      var ratio = count === 1 ? 0 : i / (count - 1);
+      ticks.push({
+        x: padL + ratio * innerW,
+        ts: minT + (maxT - minT) * ratio,
+        anchor: i === 0 ? 'start' : i === count - 1 ? 'end' : 'middle',
+        label: timeAxisLabel(minT + (maxT - minT) * ratio, grain),
+      });
+    }
+    return ticks;
+  }
+
+  /** 把 SVG 包进一个定位容器，并登记悬停命中数据 */
+  function chartFrame(svg, hit) {
+    var index = CHART_HITS.length;
+    CHART_HITS.push(hit);
+    return '<div class="chart-frame" data-chart="' + index + '" tabindex="0" role="group" aria-label="' +
+      esc(hit.aria) + '">' + svg +
+      '<div class="chart-cross" hidden aria-hidden="true"></div>' +
+      '<div class="chart-marker" hidden aria-hidden="true"></div>' +
+      '<div class="chart-tip" hidden></div>' +
+      '</div>';
+  }
+
+  /** 余额变化折线：每个密钥一条线。悬停可看任意节点的精确余额与变化量。 */
+  function balanceChart(history, grain, labelOf) {
+    var windowFrom = new Date((history.windows[grain] || {}).from || 0).getTime();
+    var usable = history.series
+      .map(function (item) {
+        return {
+          keyId: item.keyId,
+          currency: item.currency,
+          points: item.points.filter(function (p) { return new Date(p.ts).getTime() >= windowFrom; }),
+        };
+      })
+      .filter(function (item) { return item.points.length > 0; });
+    if (!usable.length) return null;
+
+    var W = 760, H = 200, padL = 58, padR = 16, padT = 16, padB = 30;
     var innerW = W - padL - padR, innerH = H - padT - padB;
+
     var times = [], values = [];
     usable.forEach(function (item) {
       item.points.forEach(function (point) { times.push(new Date(point.ts).getTime()); values.push(point.total); });
     });
-
     var minT = Math.min.apply(null, times);
     var maxT = Math.max.apply(null, times);
-    if (maxT === minT) { minT -= 1800000; maxT += 1800000; }  // 只有一个点时给个时间跨度
+    if (maxT === minT) { minT -= 1800000; maxT += 1800000; }   // 只有一个点时给个时间跨度
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
-    // 余额几乎不变时也要有合理的纵轴范围，否则曲线会被放大成噪声
+    // 余额几乎不变时也要有合理纵轴范围，否则曲线会被放大成噪声
     var spread = Math.max(maxV - minV, Math.max(maxV * 0.05, 0.5));
     var lo = Math.max(0, minV - spread * 0.2);
     var hi = maxV + spread * 0.2;
@@ -775,21 +886,23 @@
     var yOf = function (value) { return padT + innerH - ((value - lo) / (hi - lo)) * innerH; };
 
     var parts = [];
-    var balanceDigits = axisDecimals(hi);
+    var digits = axisDecimals(hi);
     [0, 0.5, 1].forEach(function (ratio) {
       var y = yOf(lo + (hi - lo) * ratio);
       parts.push('<line class="chart-gridline" x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>');
       parts.push('<text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end">' +
-        esc(moneyShort(lo + (hi - lo) * ratio, usable[0].currency, balanceDigits)) + '</text>');
+        esc(moneyShort(lo + (hi - lo) * ratio, usable[0].currency, digits)) + '</text>');
     });
 
-    [0, 0.5, 1].forEach(function (ratio, index) {
-      var ts = minT + (maxT - minT) * ratio;
-      parts.push('<text x="' + xOf(ts).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' +
-        (index === 0 ? 'start' : index === 2 ? 'end' : 'middle') + '">' + esc(shortTime(ts)) + '</text>');
+    // 小时视图刻度更密，天视图疏一些
+    timeTicks(minT, maxT, grain, padL, innerW, grain === 'hour' ? 4 : 5).forEach(function (tick) {
+      parts.push('<text x="' + tick.x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="' + tick.anchor + '">' +
+        esc(tick.label) + '</text>');
     });
 
     var legend = [];
+    var hitPoints = [];
+
     usable.forEach(function (item, index) {
       var color = PALETTE[index % PALETTE.length];
       var path = item.points.map(function (point, i) {
@@ -797,11 +910,18 @@
       }).join(' ');
       parts.push('<path class="chart-line" d="' + path + '" stroke="' + color + '"/>');
 
-      item.points.forEach(function (point) {
-        parts.push('<circle class="chart-dot" cx="' + xOf(new Date(point.ts).getTime()).toFixed(1) + '" cy="' + yOf(point.total).toFixed(1) +
-          '" r="3" fill="' + color + '"><title>' +
-          esc(new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(point.ts)) +
-            '　' + moneyText(point.total, item.currency)) + '</title></circle>');
+      item.points.forEach(function (point, i) {
+        var ts = new Date(point.ts).getTime();
+        var px = xOf(ts), py = yOf(point.total);
+        parts.push('<circle class="chart-dot" cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) +
+          '" r="3" fill="' + color + '"/>');
+        hitPoints.push({
+          x: px, y: py, ts: point.ts,
+          seriesName: labelOf(item), color: color,
+          value: point.total, currency: item.currency,
+          // 相邻两条读数的差，用来告诉用户「这一下花了多少」
+          delta: i > 0 ? point.total - item.points[i - 1].total : null,
+        });
       });
 
       var last = item.points[item.points.length - 1];
@@ -809,52 +929,235 @@
         esc(labelOf(item)) + '　' + esc(moneyText(last.total, item.currency)) + '</span>');
     });
 
-    return '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+    hitPoints.sort(function (a, b) { return a.x - b.x; });
+
+    var svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
       esc('余额变化曲线，' + usable.length + ' 条线，共 ' + times.length + ' 个记录点') + '">' +
       parts.join('') + '</svg><div class="chart-legend">' + legend.join('') + '</div>';
+
+    return {
+      html: chartFrame(svg, {
+        kind: 'line', W: W, H: H, padT: padT, innerH: innerH, points: hitPoints,
+        aria: '余额变化曲线，鼠标悬停或用左右方向键查看每个节点的精确数值',
+      }),
+      points: hitPoints,
+    };
   }
 
-  /** 每日消耗柱状图 */
-  function dailyChartSvg(calendar, currency) {
-    var days = calendar.map(function (day) { return { date: day.date, amount: day.spend[currency] || 0 }; });
-    if (!days.length || !days.some(function (day) { return day.amount > 0; })) return '';
+  /** 消耗柱状图：按当前粒度分桶 */
+  function bucketChart(buckets, currency, grain) {
+    var bars = buckets.map(function (item) {
+      return { key: item.key, start: item.start, end: item.end, amount: item.spend[currency] || 0 };
+    });
+    // 一个都没有消耗就不画，避免一条空轴占地方
+    if (!bars.length || !bars.some(function (bar) { return bar.amount > 0; })) return null;
 
-    var W = 760, H = 170, padL = 54, padR = 12, padT = 14, padB = 28;
+    var W = 760, H = 170, padL = 54, padR = 12, padT = 14, padB = 30;
     var innerW = W - padL - padR, innerH = H - padT - padB;
-    var top = niceCeil(Math.max.apply(null, days.map(function (day) { return day.amount; })));
-    var step = innerW / days.length;
-    var barW = Math.max(3, Math.min(26, step * 0.6));
-    var total = days.reduce(function (sum, day) { return sum + day.amount; }, 0);
+    var top = niceCeil(Math.max.apply(null, bars.map(function (bar) { return bar.amount; })));
+    var step = innerW / bars.length;
+    var barW = Math.max(2, Math.min(26, step * 0.62));
+    var total = bars.reduce(function (sum, bar) { return sum + bar.amount; }, 0);
+    var digits = axisDecimals(top);
     var parts = [];
-    var dayDigits = axisDecimals(top);
 
     [0, 0.5, 1].forEach(function (ratio) {
       var y = padT + innerH * (1 - ratio);
       parts.push('<line class="chart-gridline" x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '"/>');
       parts.push('<text x="' + (padL - 8) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end">' +
-        esc(moneyShort(top * ratio, currency, dayDigits)) + '</text>');
+        esc(moneyShort(top * ratio, currency, digits)) + '</text>');
     });
 
-    var labelEvery = Math.max(1, Math.ceil(days.length / 7));
-    days.forEach(function (day, index) {
-      var x = padL + step * index + (step - barW) / 2;
-      var height = day.amount > 0 ? Math.max(2, (day.amount / top) * innerH) : 0;
+    var labelEvery = Math.max(1, Math.ceil(bars.length / (grain === 'hour' ? 8 : 7)));
+    var hitBars = [];
+
+    bars.forEach(function (bar, index) {
+      var x0 = padL + step * index;
+      var x = x0 + (step - barW) / 2;
+      var height = bar.amount > 0 ? Math.max(2, (bar.amount / top) * innerH) : 0;
       if (height > 0) {
         parts.push('<rect class="chart-col" x="' + x.toFixed(1) + '" y="' + (padT + innerH - height).toFixed(1) +
-          '" width="' + barW.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="2"><title>' +
-          esc(day.date + '　' + moneyText(day.amount, currency)) + '</title></rect>');
+          '" width="' + barW.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="2"/>');
       }
-      if (index % labelEvery === 0 || index === days.length - 1) {
-        parts.push('<text x="' + (padL + step * index + step / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' +
-          esc(day.date.slice(5).replace('-', '/')) + '</text>');
+      hitBars.push({
+        x0: x0, x1: x0 + step, y: padT + innerH - height,
+        start: bar.start, end: bar.end, amount: bar.amount, currency: currency,
+      });
+
+      if (index % labelEvery === 0 || index === bars.length - 1) {
+        // 小时视图里跨天的那一根直接标日期，比一长串 HH:00 好认
+        var label;
+        if (grain === 'hour') {
+          var d = new Date(bar.start);
+          label = d.getHours() === 0
+            ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(d)
+            : String(d.getHours()).padStart(2, '0') + ':00';
+        } else {
+          label = bar.key.slice(5).replace('-', '/');
+        }
+        parts.push('<text x="' + (x0 + step / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' +
+          esc(label) + '</text>');
       }
     });
 
     parts.push('<line class="chart-axisline" x1="' + padL + '" y1="' + (padT + innerH) + '" x2="' + (W - padR) + '" y2="' + (padT + innerH) + '"/>');
 
-    return '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
-      esc('每日消耗柱状图，' + days.length + ' 天，合计 ' + moneyText(total, currency)) + '">' +
+    var svg = '<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+      esc('消耗柱状图，' + bars.length + ' 个时段，合计 ' + moneyText(total, currency)) + '">' +
       parts.join('') + '</svg>';
+
+    return {
+      html: chartFrame(svg, {
+        kind: 'bar', W: W, H: H, padT: padT, innerH: innerH, bars: hitBars,
+        aria: '消耗柱状图，鼠标悬停或用左右方向键查看每个时段的精确消耗',
+      }),
+      total: total,
+    };
+  }
+
+  /* ── 悬停交互 ─────────────────────────────────────── */
+
+  /** frame 内的元素引用与几何，全部在事件回调里现取 */
+  function chartContext(frame) {
+    var svg = frame.querySelector('svg');
+    var hit = CHART_HITS[Number(frame.getAttribute('data-chart'))];
+    if (!svg || !hit) return null;
+    return {
+      frame: frame, svg: svg, hit: hit,
+      cross: frame.querySelector('.chart-cross'),
+      marker: frame.querySelector('.chart-marker'),
+      tip: frame.querySelector('.chart-tip'),
+    };
+  }
+
+  /** SVG 用户坐标 → 相对 frame 的 CSS 像素 */
+  function toFramePixels(ctx, ux, uy) {
+    var fr = ctx.frame.getBoundingClientRect();
+    var sr = ctx.svg.getBoundingClientRect();
+    return {
+      x: (sr.left - fr.left) + (ux / ctx.hit.W) * sr.width,
+      y: (sr.top - fr.top) + (uy / ctx.hit.H) * sr.height,
+      width: fr.width,
+    };
+  }
+
+  function tipHtmlFor(hit, index) {
+    if (hit.kind === 'line') {
+      var point = hit.points[index];
+      var rows = '<div class="chart-tip-when">' + esc(preciseStamp(point.ts)) + '</div>' +
+        '<div class="chart-tip-row"><i class="chart-legend-dot" style="background:' + point.color +
+        '" aria-hidden="true"></i>' + esc(point.seriesName) + '</div>' +
+        '<div class="chart-tip-value">' + esc(moneyText(point.value, point.currency)) + '</div>';
+      if (point.delta !== null && Math.abs(point.delta) >= 0.005) {
+        var up = point.delta > 0;
+        rows += '<div class="chart-tip-delta ' + (up ? 'up' : 'down') + '">较上次 ' +
+          (up ? '+' : '−') + esc(moneyText(Math.abs(point.delta), point.currency)) + '</div>';
+      } else if (point.delta !== null) {
+        rows += '<div class="chart-tip-delta">较上次没有变化</div>';
+      }
+      return { html: rows, ux: point.x, uy: point.y };
+    }
+
+    var bar = hit.bars[index];
+    return {
+      html: '<div class="chart-tip-when">' + esc(bucketRangeText(bar.start, bar.end)) + '</div>' +
+        '<div class="chart-tip-value">' + esc(moneyText(bar.amount, bar.currency)) + '</div>' +
+        (bar.amount > 0 ? '' : '<div class="chart-tip-delta">这个时段没有检测到消耗</div>'),
+      ux: (bar.x0 + bar.x1) / 2,
+      uy: bar.amount > 0 ? bar.y : hit.padT + hit.innerH,
+    };
+  }
+
+  function showChartHit(ctx, index) {
+    var pos = tipHtmlFor(ctx.hit, index);
+    var pixels = toFramePixels(ctx, pos.ux, pos.uy);
+
+    var crossTop = toFramePixels(ctx, 0, ctx.hit.padT).y;
+    var crossBottom = toFramePixels(ctx, 0, ctx.hit.padT + ctx.hit.innerH).y;
+    ctx.cross.hidden = false;
+    ctx.cross.style.left = pixels.x.toFixed(1) + 'px';
+    ctx.cross.style.top = crossTop.toFixed(1) + 'px';
+    ctx.cross.style.height = Math.max(0, crossBottom - crossTop).toFixed(1) + 'px';
+
+    ctx.marker.hidden = false;
+    ctx.marker.style.left = pixels.x.toFixed(1) + 'px';
+    ctx.marker.style.top = pixels.y.toFixed(1) + 'px';
+
+    ctx.tip.hidden = false;
+    ctx.tip.innerHTML = pos.html;
+    var measured = ctx.tip.getBoundingClientRect();
+    var left = Math.max(0, Math.min(pixels.x - measured.width / 2, pixels.width - measured.width));
+    var top = pixels.y - measured.height - 14;
+    if (top < 0) top = pixels.y + 16;
+    ctx.tip.style.left = left.toFixed(1) + 'px';
+    ctx.tip.style.top = top.toFixed(1) + 'px';
+  }
+
+  function hideChartHit(ctx) {
+    ctx.cross.hidden = true;
+    ctx.marker.hidden = true;
+    ctx.tip.hidden = true;
+  }
+
+  function hideAllCharts() {
+    var frames = el.historyBody.querySelectorAll('.chart-frame');
+    Array.prototype.forEach.call(frames, function (frame) {
+      var ctx = chartContext(frame);
+      if (ctx) hideChartHit(ctx);
+    });
+  }
+
+  /** 鼠标/触摸位置 → 最近的命中项 */
+  function hitIndexAt(ctx, clientX) {
+    var rect = ctx.svg.getBoundingClientRect();
+    if (!rect.width) return -1;
+    var ux = (clientX - rect.left) * (ctx.hit.W / rect.width);
+
+    if (ctx.hit.kind === 'bar') {
+      for (var i = 0; i < ctx.hit.bars.length; i += 1) {
+        if (ux >= ctx.hit.bars[i].x0 && ux <= ctx.hit.bars[i].x1) return i;
+      }
+      // 落在两端之外时取最近的一根
+      return ux < ctx.hit.bars[0].x0 ? 0 : ctx.hit.bars.length - 1;
+    }
+
+    var best = -1, bestDistance = Infinity;
+    for (var j = 0; j < ctx.hit.points.length; j += 1) {
+      var distance = Math.abs(ctx.hit.points[j].x - ux);
+      if (distance < bestDistance) { bestDistance = distance; best = j; }
+    }
+    return best;
+  }
+
+  function handlePointer(clientX, target, keyboard) {
+    var frame = target && target.closest ? target.closest('.chart-frame') : null;
+    if (!frame) { hideAllCharts(); return; }
+    var ctx = chartContext(frame);
+    if (!ctx) return;
+    var index = hitIndexAt(ctx, clientX);
+    if (index < 0) { hideChartHit(ctx); return; }
+    // 只在键盘导航时开启朗读，鼠标划过不打扰屏幕阅读器
+    ctx.tip.setAttribute('aria-live', keyboard ? 'polite' : 'off');
+    ctx.lastIndex = index;
+    showChartHit(ctx, index);
+  }
+
+  function stepChart(target, direction) {
+    var frame = target && target.closest ? target.closest('.chart-frame') : null;
+    if (!frame) return false;
+    var ctx = chartContext(frame);
+    if (!ctx) return false;
+    var count = ctx.hit.kind === 'line' ? ctx.hit.points.length : ctx.hit.bars.length;
+    if (!count) return false;
+    var base = typeof ctx.lastIndex === 'number' ? ctx.lastIndex : (direction > 0 ? -1 : count);
+    var next = Math.max(0, Math.min(count - 1, base + direction));
+    ctx.lastIndex = next;
+    // 键盘导航时用一个假坐标算出位置，复用同一套渲染
+    var unit = ctx.hit.kind === 'line' ? ctx.hit.points[next].x : (ctx.hit.bars[next].x0 + ctx.hit.bars[next].x1) / 2;
+    var rect = ctx.svg.getBoundingClientRect();
+    ctx.tip.setAttribute('aria-live', 'polite');
+    showChartHit(ctx, next);
+    return { frame: frame, unit: unit, rect: rect };
   }
 
   function moneyMapText(map) {
@@ -894,6 +1197,9 @@
       : summary.spanHours.toFixed(1) + ' 小时';
     el.historyMeta.textContent = summary.readings + ' 条记录 · 覆盖 ' + spanText;
 
+    var grain = currentGrain();
+    var buckets = (history.buckets && history.buckets[grain]) || [];
+
     var blocks = [];
 
     var currentText = moneyMapText(history.current);
@@ -908,26 +1214,33 @@
       '</div>'
     );
 
-    var balanceSvg = balanceChartSvg(history.series, function (item) {
-      return renameKey(item.keyId) + '（' + item.currency + '）';
-    });
-    if (balanceSvg) {
-      blocks.push('<p class="history-sub">余额变化</p>' + balanceSvg);
+    // 每次渲染重建悬停命中表
+    CHART_HITS = [];
+
+    var nameOf = function (item) { return renameKey(item.keyId) + '（' + item.currency + '）'; };
+    var balance = balanceChart(history, grain, nameOf);
+    if (balance) {
+      blocks.push('<p class="history-sub">余额变化' +
+        '<span class="history-sub-note">悬停或用 ← → 看每个节点的精确数值</span></p>' + balance.html);
     }
 
-    // 每日消耗只在真的检测到消耗时才画
+    // 只画真的有消耗的那个币种
     var chartCurrency = 'CNY';
     var totals = {};
-    (history.calendar || []).forEach(function (day) {
-      Object.keys(day.spend).forEach(function (code) { totals[code] = (totals[code] || 0) + day.spend[code]; });
+    buckets.forEach(function (bucketItem) {
+      Object.keys(bucketItem.spend).forEach(function (code) { totals[code] = (totals[code] || 0) + bucketItem.spend[code]; });
     });
     var ranked = Object.keys(totals).sort(function (a, b) { return totals[b] - totals[a]; });
     if (ranked.length) chartCurrency = ranked[0];
     else if (history.series.length) chartCurrency = history.series[0].currency;
 
-    var dailySvg = dailyChartSvg(history.calendar || [], chartCurrency);
-    if (dailySvg) {
-      blocks.push('<p class="history-sub">每日消耗（' + esc(currencySymbol(chartCurrency)) + '）</p>' + dailySvg);
+    var bars = bucketChart(buckets, chartCurrency, grain);
+    var grainText = grain === 'hour' ? '按小时' : '按天';
+    if (bars) {
+      blocks.push('<p class="history-sub">消耗（' + esc(currencySymbol(chartCurrency)) + ' · ' + grainText + '）</p>' + bars.html);
+    } else if (buckets.length) {
+      blocks.push('<p class="history-sub">消耗（' + esc(currencySymbol(chartCurrency)) + ' · ' + grainText + '）</p>' +
+        '<div class="history-empty">这个时间范围内没有检测到消耗。</div>');
     }
 
     if (history.events.length) {
@@ -968,6 +1281,36 @@
   el.cancelAdd.addEventListener('click', closeAddDialog);
   el.addReveal.addEventListener('click', function () { toggleReveal(el.addKey, el.addReveal); });
   el.tempReveal.addEventListener('click', function () { toggleReveal(el.tempKey, el.tempReveal); });
+
+  function setGrain(grain, rerender) {
+    state.grain = grain === 'hour' ? 'hour' : 'day';
+    el.grainDay.setAttribute('aria-pressed', String(state.grain === 'day'));
+    el.grainHour.setAttribute('aria-pressed', String(state.grain === 'hour'));
+    try { window.localStorage.setItem(GRAIN_KEY, state.grain); } catch (e) { /* 忽略 */ }
+    if (rerender !== false && state.history) renderHistory();
+  }
+
+  el.grainDay.addEventListener('click', function () { setGrain('day'); });
+  el.grainHour.addEventListener('click', function () { setGrain('hour'); });
+
+  // 图表悬停用事件委托：所有 DOM 查询都发生在回调里，
+  // 这样没有真实 DOM 的测试环境也能安全渲染
+  el.historyBody.addEventListener('mousemove', function (event) {
+    handlePointer(event.clientX, event.target, false);
+  });
+  el.historyBody.addEventListener('touchmove', function (event) {
+    if (event.touches && event.touches[0]) handlePointer(event.touches[0].clientX, event.target, false);
+  }, { passive: true });
+  el.historyBody.addEventListener('mouseleave', function () {
+    if (el.historyBody.querySelectorAll) hideAllCharts();
+  });
+  el.historyBody.addEventListener('keydown', function (event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (stepChart(event.target, event.key === 'ArrowRight' ? 1 : -1)) event.preventDefault();
+  });
+  el.historyBody.addEventListener('focusout', function () {
+    if (el.historyBody.querySelectorAll) hideAllCharts();
+  });
 
   el.clearHistory.addEventListener('click', function () {
     if (!window.confirm('确定清空全部查询记录吗？密钥和余额不受影响，但历史曲线会消失，且无法恢复。')) return;
@@ -1093,7 +1436,10 @@
     try {
       var saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved !== null && Number.isFinite(Number(saved))) state.threshold = Number(saved);
+      var savedGrain = window.localStorage.getItem(GRAIN_KEY);
+      if (savedGrain === 'hour' || savedGrain === 'day') state.grain = savedGrain;
     } catch (e) { /* 忽略 */ }
+    setGrain(state.grain, false);
 
     loadState()
       .then(function () {

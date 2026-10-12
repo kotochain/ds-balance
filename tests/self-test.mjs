@@ -180,8 +180,13 @@ function makeElement(id) {
       (this.listeners[type] = this.listeners[type] || []).push(handler);
     },
     removeEventListener() {},
-    setAttribute() {},
-    getAttribute() { return null; },
+    setAttribute(name, value) {
+      this.attrs = this.attrs || {};
+      this.attrs[name] = String(value);
+    },
+    getAttribute(name) {
+      return (this.attrs && Object.prototype.hasOwnProperty.call(this.attrs, name)) ? this.attrs[name] : null;
+    },
     focus() {},
     reset() {},
     close() {},
@@ -226,6 +231,14 @@ async function runUiScript(origin) {
   return elements;
 }
 
+/** 在 DOM 桩上派发事件：把注册过的处理器挨个调一遍 */
+function fire(element, type, extra = {}) {
+  const handlers = (element.listeners && element.listeners[type]) || [];
+  const event = Object.assign({ target: element, preventDefault() {}, stopPropagation() {} }, extra);
+  handlers.forEach((handler) => handler(event));
+  return handlers.length;
+}
+
 /** 轮询等待界面完成异步渲染 */
 async function waitFor(predicate, timeoutMs = 6000) {
   const deadline = Date.now() + timeoutMs;
@@ -256,8 +269,11 @@ async function checkUiRendering(origin) {
 
 /**
  * 造一段可精确断言的查询记录（相对当前时间生成，任何时间跑都成立）。
- *   100 起，逐日消耗 [4, 3, 0, 6, 2]，最后充值 20 → 期末 105
- *   累计消耗 15，累计充值 20
+ *   100 起，逐日消耗 [4, 3, 0, 6, 2]，最后充值 25 → 期末 110.00
+ *   累计消耗 15，累计充值 25
+ *
+ * 期末余额特意对齐 mock 返回的 110.00：界面启动时会自动查询一次并追加读数，
+ * 余额相同则差值为 0，不会让断言依赖「追加发生在断言之前还是之后」。
  */
 function buildReadings(keyId, now = new Date()) {
   const rows = [];
@@ -278,10 +294,10 @@ function buildReadings(keyId, now = new Date()) {
     balance -= spend;
     push(at(5 - index, 10), balance);
   });
-  balance += 20;
+  balance += 25;
   push(at(0, 9), balance);
 
-  return { rows, spend: 15, topup: 20, current: 105, days: 7 };
+  return { rows, spend: 15, topup: 25, current: 110, days: 7 };
 }
 
 /** 空统计对象用：把读数写进指定目录并配一个密钥 */
@@ -301,7 +317,7 @@ async function checkHistoryUiRendering(origin, expected) {
 
   check('记录面板已显示', elements.get('historyPanel').hidden !== true);
   check('渲染出余额变化曲线', body().includes('path class="chart-line"') || /class="chart-line"/.test(body()), body().slice(0, 200));
-  check('渲染出每日消耗柱状图', body().includes('class="chart-col"'), body().slice(0, 200));
+  check('渲染出消耗柱状图', body().includes('class="chart-col"'), body().slice(0, 200));
   check('图表带无障碍描述', (body().match(/role="img" aria-label="[^"]+"/g) || []).length >= 2);
   check('统计卡显示当前余额', elements.get('historyBody').innerHTML.includes(expected.current.toFixed(2)),
     body().slice(0, 600));
@@ -309,6 +325,37 @@ async function checkHistoryUiRendering(origin, expected) {
   check('统计卡显示期间充值', body().includes(expected.topup.toFixed(2)));
   check('列出最近的余额变化', body().includes('最近的余额变化') && body().includes('event-amount'));
   check('记录面板不泄露完整密钥', !body().includes(GOOD_KEY));
+
+  // ── 悬停基础设施 ──
+  check('图表包在可定位容器里', body().includes('class="chart-frame"'));
+  check('容器带键盘入口', /class="chart-frame" data-chart="0" tabindex="0"/.test(body()));
+  check('每个图表都有十字线/标记点/浮层',
+    (body().match(/class="chart-cross"/g) || []).length >= 2 &&
+    (body().match(/class="chart-marker"/g) || []).length >= 2 &&
+    (body().match(/class="chart-tip"/g) || []).length >= 2);
+  check('图表编号连续', body().includes('data-chart="0"') && body().includes('data-chart="1"'));
+  check('悬停提示写在图表标题旁', body().includes('看每个节点的精确数值'));
+
+  // ── 粒度切换 ──
+  check('默认按天', elements.get('grainDay').getAttribute('aria-pressed') === 'true' &&
+    elements.get('grainHour').getAttribute('aria-pressed') === 'false');
+
+  const dayLabels = (body().match(/<text[^>]*text-anchor="middle">([^<]*)<\/text>/g) || []).join('');
+  check('按天视图横轴是日期', /\d+\/\d+/.test(dayLabels), dayLabels.slice(0, 120));
+
+  check('按小时按钮已绑定', fire(elements.get('grainHour'), 'click') === 1);
+  check('切到按小时后状态翻转', elements.get('grainHour').getAttribute('aria-pressed') === 'true' &&
+    elements.get('grainDay').getAttribute('aria-pressed') === 'false');
+
+  const hourBody = body();
+  const hourLabels = (hourBody.match(/<text[^>]*text-anchor="middle">([^<]*)<\/text>/g) || []).join('');
+  check('按小时视图横轴出现整点', /\d{2}:00/.test(hourLabels), hourLabels.slice(0, 160));
+  check('按小时视图仍画出曲线与柱子',
+    hourBody.includes('class="chart-line"') && hourBody.includes('class="chart-col"'), hourBody.slice(0, 200));
+  check('切换后图表编号重建', hourBody.includes('data-chart="0"'));
+
+  check('按天按钮可切回', fire(elements.get('grainDay'), 'click') === 1 &&
+    elements.get('grainDay').getAttribute('aria-pressed') === 'true');
 }
 
 const mock = await startMockApi();
@@ -580,6 +627,30 @@ try {
 
     const limited = await callJson(`${histOrigin}/api/history?days=3`);
     check('days 参数生效', limited.body?.calendar?.length <= 3, String(limited.body?.calendar?.length));
+
+    // 按天 + 按小时两套桶
+    check('返回按天与按小时两套桶',
+      Array.isArray(r.body?.buckets?.day) && Array.isArray(r.body?.buckets?.hour));
+    check('按小时的桶最多 72 个', r.body.buckets.hour.length <= 72, String(r.body.buckets.hour.length));
+    check('按天的桶最多 30 个', r.body.buckets.day.length <= 30, String(r.body.buckets.day.length));
+
+    const hourBuckets = r.body.buckets.hour;
+    check('小时桶相邻差 1 小时', hourBuckets.every((bucket, i) => i === 0 ||
+      new Date(bucket.start) - new Date(hourBuckets[i - 1].start) === 3600000));
+    check('桶的 start/end 相差一个桶宽', hourBuckets.every((bucket) =>
+      new Date(bucket.end) - new Date(bucket.start) === 3600000));
+    // 本地对齐：小时桶必须落在整点，日桶必须落在本地零点
+    check('小时桶按本地整点对齐', hourBuckets.every((bucket) => new Date(bucket.start).getMinutes() === 0));
+    check('日桶按本地零点对齐', r.body.buckets.day.every((bucket) => {
+      const d = new Date(bucket.start);
+      return d.getHours() === 0 && d.getMinutes() === 0;
+    }), JSON.stringify(r.body.buckets.day.slice(0, 2).map((b) => b.start)));
+
+    check('返回两种粒度的可视窗口',
+      Boolean(r.body?.windows?.day?.from) && Boolean(r.body?.windows?.hour?.from));
+    check('小时窗口比天窗口短', new Date(r.body.windows.hour.from) > new Date(r.body.windows.day.from));
+    check('窗口内没有数据之前的空白桶', hourBuckets.length === 0 ||
+      new Date(hourBuckets[0].start) >= new Date(new Date(fixture.rows[0].ts).setHours(0, 0, 0, 0)));
   }
 
   {
