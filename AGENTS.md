@@ -40,7 +40,7 @@ git reflog expire --expire=now --all && git gc --prune=now   # 清理游离副�
 ## 第二条：改完必须跑测试
 
 ```bash
-node tests/self-test.mjs      # 141 项，全走本地 mock，不消耗真实额度
+node tests/self-test.mjs      # 149 项，全走本地 mock，不消耗真实额度
 ```
 
 测试结构：
@@ -95,7 +95,9 @@ node tests/self-test.mjs      # 141 项，全走本地 mock，不消耗真实额
 - 只监听 `127.0.0.1`
 - 校验 `Host`（防 DNS 重绑定）和 `Origin`（防跨站调用）
 - 不发任何 `Access-Control-Allow-Origin`
-- 自动刷新**不写记录**（`record: false`）—— 否则网页挂一天就是上千条噪声
+- 记录分两种：网页定时刷新走 `auto: true`，由服务端按 `SAMPLE_MINUTES`（默认 5 分钟）限流；
+  手动刷新和命令行查询不限流，点一次记一次。限流只影响「要不要写记录」，不影响余额本身的刷新。
+  否则网页挂一天就是上万条噪声。
 
 ## 发布前检查清单
 

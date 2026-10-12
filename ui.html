@@ -422,7 +422,8 @@
     threshold: 10,
     lastUpdated: null,
     history: null,
-    grain: 'day'
+    grain: 'day',
+    sampleMinutes: 0
   };
 
   var el = {
@@ -669,6 +670,7 @@
   function loadState() {
     return request('/api/state').then(function (body) {
       state.baseUrl = body.baseUrl;
+      state.sampleMinutes = Number(body.sampleMinutes) || 0;
       state.keys = body.keys || [];
     });
   }
@@ -679,8 +681,8 @@
     render();
   }
 
-  function queryAll(record) {
-    var payload = JSON.stringify({ record: record !== false });
+  function queryAll(record, auto) {
+    var payload = JSON.stringify({ record: record !== false, auto: auto === true });
     return request('/api/query-all', { method: 'POST', body: payload }).then(function (body) {
       var now = new Date();
       (body.results || []).forEach(function (item) {
@@ -910,11 +912,15 @@
       }).join(' ');
       parts.push('<path class="chart-line" d="' + path + '" stroke="' + color + '"/>');
 
+      // 点数太多时圆点会糊成一片，也拖慢渲染；只保留命中数据（悬停仍然精确）
+      var drawDots = item.points.length <= 120;
       item.points.forEach(function (point, i) {
         var ts = new Date(point.ts).getTime();
         var px = xOf(ts), py = yOf(point.total);
-        parts.push('<circle class="chart-dot" cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) +
-          '" r="3" fill="' + color + '"/>');
+        if (drawDots) {
+          parts.push('<circle class="chart-dot" cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) +
+            '" r="3" fill="' + color + '"/>');
+        }
         hitPoints.push({
           x: px, y: py, ts: point.ts,
           seriesName: labelOf(item), color: color,
@@ -1182,7 +1188,8 @@
 
     // 只有一条记录时画不出曲线，给个明确的引导
     if (summary.readings < 2) {
-      el.historyMeta.textContent = '已记录 ' + summary.readings + ' 条';
+      el.historyMeta.textContent = '已记录 ' + summary.readings + ' 条' +
+        (state.sampleMinutes > 0 ? ' · 开着页面每 ' + state.sampleMinutes + ' 分钟自动记一次' : '');
       el.historyBody.innerHTML =
         '<div class="history-empty">' +
           (summary.readings === 0
@@ -1195,7 +1202,8 @@
     var spanText = summary.spanHours >= 48
       ? (summary.spanHours / 24).toFixed(1) + ' 天'
       : summary.spanHours.toFixed(1) + ' 小时';
-    el.historyMeta.textContent = summary.readings + ' 条记录 · 覆盖 ' + spanText;
+    el.historyMeta.textContent = summary.readings + ' 条记录 · 覆盖 ' + spanText +
+      (state.sampleMinutes > 0 ? ' · 开着页面每 ' + state.sampleMinutes + ' 分钟自动记一次' : '');
 
     var grain = currentGrain();
     var buckets = (history.buckets && history.buckets[grain]) || [];
@@ -1274,7 +1282,7 @@
   el.refreshAll.addEventListener('click', function () {
     state.loadingAll = true;
     render();
-    queryAll(true);
+    queryAll(true, false);
   });
 
   el.openAdd.addEventListener('click', openAddDialog);
@@ -1424,8 +1432,8 @@
       if (!el.autoRefresh.checked) return;
       if (document.visibilityState !== 'visible') return;
       if (!state.keys.length) return;
-      // 自动刷新不写记录，否则挂一天就是上千条噪声
-      queryAll(false);
+      // 记录，但由服务端按采样间隔限流 —— 曲线能自己往前走，又不会堆成噪声
+      queryAll(true, true);
     }, REFRESH_MS);
   }
 
@@ -1447,7 +1455,7 @@
         if (state.keys.length) {
           state.loadingAll = true;
           render();
-          return queryAll(true);
+          return queryAll(true, true);
         }
         return loadHistory();
       })
@@ -1459,7 +1467,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && el.autoRefresh.checked) {
       var stale = !state.lastUpdated || (Date.now() - state.lastUpdated.getTime() > REFRESH_MS);
-      if (stale && state.keys.length) queryAll(false);
+      if (stale && state.keys.length) queryAll(true, true);
     }
   });
 

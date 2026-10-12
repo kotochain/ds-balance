@@ -33,6 +33,15 @@ const DEFAULT_TIMEOUT = 15000;
 /** 余额完全没变且距上次记录不到这么久，就不重复写一条。 */
 const DEDUPE_WINDOW_MS = 60 * 1000;
 
+/**
+ * 网页自动记录的最小间隔（分钟）。
+ *
+ * 网页开着的时候会定期自己记一笔，曲线就能一直往前走。
+ * 但没必要每分钟都记 —— 5 分钟一条，一天最多 288 条，
+ * 既看得出变化，又不至于把曲线堆成一团。手动点「刷新全部」不受这个限制。
+ */
+const SAMPLE_MINUTES = Math.max(1, Number(process.env.DS_BALANCE_SAMPLE_MINUTES ?? 5));
+
 /* ────────────────────────────── 终端样式 ────────────────────────────── */
 
 const COLOR = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
@@ -150,8 +159,13 @@ function readingsFrom(keyId, result, at = new Date()) {
     }));
 }
 
-/** 追加读数；余额没变且距上次记录不到 60 秒就跳过。返回实际写入条数。 */
-async function recordReadings(readings) {
+/** 追加读数，返回实际写入条数。
+ *
+ * 两道过滤：
+ *   minIntervalMs —— 距上一条不足这个间隔就直接跳过（自动记录用，避免刷屏）
+ *   内容去重      —— 余额和上次一模一样、且不到 60 秒，也跳过（手动连点用）
+ */
+async function recordReadings(readings, { minIntervalMs = 0 } = {}) {
   if (!readings.length) return 0;
 
   const last = new Map();
@@ -167,8 +181,10 @@ async function recordReadings(readings) {
   const fresh = readings.filter((reading) => {
     const previous = last.get(`${reading.keyId}|${reading.currency}`);
     if (!previous) return true;
+    const age = now - new Date(previous.ts).getTime();
+    if (minIntervalMs > 0 && age < minIntervalMs) return false;
     const unchanged = previous.total === reading.total && previous.toppedUp === reading.toppedUp;
-    return !unchanged || now - new Date(previous.ts).getTime() > DEDUPE_WINDOW_MS;
+    return !unchanged || age > DEDUPE_WINDOW_MS;
   });
   if (!fresh.length) return 0;
 
@@ -211,7 +227,7 @@ async function queryAndRecord(keyId, key, options = {}) {
   const result = await queryBalance(key, options);
   if (keyId && options.record !== false) {
     try {
-      await recordReadings(readingsFrom(keyId, result));
+      await recordReadings(readingsFrom(keyId, result), { minIntervalMs: options.minIntervalMs });
     } catch (err) {
       if (!options.quiet) console.error(`${yellow('!')} 查询记录写入失败：${err.message}`);
     }
@@ -791,6 +807,7 @@ async function startServer({ port, baseUrl, timeout, open }) {
           baseUrl,
           version: VERSION,
           storeFile: STORE_FILE,
+          sampleMinutes: SAMPLE_MINUTES,
           keys: store.keys.map(publicKey),
         });
       }
@@ -843,14 +860,17 @@ async function startServer({ port, baseUrl, timeout, open }) {
         return sendJson(res, 200, toWire({ id: null, name: '临时查询', masked: maskKey(key), ...result }));
       }
 
-      // 并发查询全部已保存密钥。自动刷新时传 record:false，免得挂一天刷出上千条记录
+      // 并发查询全部已保存密钥。
+      // auto:true 表示这是网页自己定时刷的 —— 会按 SAMPLE_MINUTES 限流，
+      // 免得挂一天刷出上万条记录；手动点刷新不受限。
       if (method === 'POST' && route === '/api/query-all') {
         const body = await readJsonBody(req);
         const record = body.record !== false;
+        const minIntervalMs = body.auto === true ? SAMPLE_MINUTES * 60000 : 0;
         const store = await loadStore();
         const results = await Promise.all(
           store.keys.map(async (entry) => {
-            const result = await queryAndRecord(entry.id, entry.key, { baseUrl, timeout, record });
+            const result = await queryAndRecord(entry.id, entry.key, { baseUrl, timeout, record, minIntervalMs });
             return toWire({ ...publicKey(entry), ...result });
           })
         );
@@ -929,6 +949,7 @@ ${bold('环境变量')}
   DS_BALANCE_BASE_URL   覆盖接口地址
   DS_BALANCE_HOME       密钥存储目录（默认 ./data）
   DS_BALANCE_PORT       默认端口
+  DS_BALANCE_SAMPLE_MINUTES  网页自动记录的最小间隔（分钟，默认 5）
   NO_COLOR              设为任意值可关闭彩色输出
 
 ${bold('数据位置')}
@@ -936,7 +957,8 @@ ${bold('数据位置')}
   ${HISTORY_FILE}  ${dim('查询记录，权限 600')}
 
 ${bold('查询记录')}
-  每次主动查询余额都会记一条（网页版的 60 秒自动刷新不记）。
+  每次主动查询余额都会记一条；网页开着时每 5 分钟自动再记一笔，曲线会自己往前走。
+  手动查询不受这个间隔限制。
   相邻两条做差就是这段时间的消耗或充值，网页版据此画出余额曲线和每日消耗。
 `;
 

@@ -45,6 +45,9 @@ function section(title) {
 /* ── 模拟 DeepSeek 接口（按官方文档的响应结构） ─────────────── */
 
 function startMockApi() {
+  // 余额可调：测试里改一下就能模拟「花掉了一些钱」
+  const state = { total: '110.00', granted: '10.00', toppedUp: '100.00' };
+
   const server = createServer((req, res) => {
     const auth = String(req.headers.authorization ?? '');
     const key = auth.replace(/^Bearer\s+/i, '');
@@ -65,7 +68,12 @@ function startMockApi() {
       return send(200, {
         is_available: true,
         balance_infos: [
-          { currency: 'CNY', total_balance: '110.00', granted_balance: '10.00', topped_up_balance: '100.00' },
+          {
+            currency: 'CNY',
+            total_balance: state.total,
+            granted_balance: state.granted,
+            topped_up_balance: state.toppedUp,
+          },
         ],
       });
     }
@@ -88,7 +96,14 @@ function startMockApi() {
   });
 
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.listen(0, '127.0.0.1', () => resolve({
+      server,
+      port: server.address().port,
+      setBalance(total) {
+        state.total = Number(total).toFixed(2);
+        state.toppedUp = Number(total).toFixed(2);
+      },
+    }));
   });
 }
 
@@ -599,6 +614,57 @@ try {
 
     const withRecord = await callJson(`${origin}/api/query-all`, { method: 'POST', body: '{}' });
     check('接口默认 record:true', withRecord.status === 200);
+  }
+
+  section('查询记录 · 自动记录限流');
+  {
+    // 独立目录 + 独立服务：主目录里已经有别的测试写下的近期记录，会干扰判断
+    const throttleHome = await mkdtemp(path.join(tmpdir(), 'ds-balance-throttle-'));
+    const throttleKeyId = '44444444-4444-4444-4444-444444444444';
+    // 种一条 10 分钟前的读数：比采样间隔旧，所以下一次自动记录应该被允许
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    await writeFile(path.join(throttleHome, 'history.jsonl'),
+      `${JSON.stringify({ ts: old.toISOString(), keyId: throttleKeyId, currency: 'CNY', total: 110, granted: 0, toppedUp: 110 })}\n`);
+    await writeFile(path.join(throttleHome, 'keys.json'),
+      JSON.stringify({ version: 1, keys: [{ id: throttleKeyId, name: '主账号', key: GOOD_KEY, createdAt: old.toISOString() }] }, null, 2));
+
+    const throttlePort = await freePort();
+    const throttleWeb = await startWebServer(throttlePort, { DS_BALANCE_HOME: throttleHome, DS_BALANCE_BASE_URL: BASE });
+    const throttleOrigin = `http://127.0.0.1:${throttlePort}`;
+    const readingCount = async () =>
+      (await callJson(`${throttleOrigin}/api/history`)).body?.summary?.readings ?? 0;
+    const autoQuery = () => callJson(`${throttleOrigin}/api/query-all`, {
+      method: 'POST', body: JSON.stringify({ record: true, auto: true }),
+    });
+    const manualQuery = () => callJson(`${throttleOrigin}/api/query-all`, {
+      method: 'POST', body: JSON.stringify({ record: true, auto: false }),
+    });
+
+    try {
+      mock.setBalance(109.00);
+      const countA = await readingCount();
+      await autoQuery();
+      check('距上一条超过采样间隔时，自动记录会写下', (await readingCount()) === countA + 1,
+        `${countA} → ${await readingCount()}`);
+
+      mock.setBalance(108.00);
+      const countB = await readingCount();
+      await autoQuery();
+      check('距上一条不足采样间隔时，自动记录被跳过', (await readingCount()) === countB,
+        `${countB} → ${await readingCount()}`);
+
+      await manualQuery();
+      check('手动刷新不受采样间隔限制', (await readingCount()) === countB + 1,
+        `${countB} → ${await readingCount()}`);
+
+      const after = (await callJson(`${throttleOrigin}/api/history`)).body;
+      check('被跳过的只是记录，余额本身照常刷新', after.current.CNY === 108, JSON.stringify(after.current));
+      check('采样间隔会告知界面', (await callJson(`${throttleOrigin}/api/state`)).body?.sampleMinutes > 0);
+    } finally {
+      throttleWeb.kill('SIGTERM');
+      mock.setBalance(110.00);   // 恢复，后面的断言依赖 110.00
+      await rm(throttleHome, { recursive: true, force: true });
+    }
   }
 
   section('查询记录 · 构造数据后的统计与接口');
