@@ -9,9 +9,9 @@
 
 import { createServer, request as httpRequest } from 'node:http';
 import { spawn } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -744,8 +744,48 @@ try {
     const hookPath = path.join(ROOT, '.githooks/pre-commit');
     check('pre-commit 钩子存在', existsSync(hookPath));
     check('pre-commit 钩子可执行', ((await stat(hookPath)).mode & 0o111) !== 0);
-    const hooksPath = execFileSync('git', ['config', 'core.hooksPath'], { cwd: ROOT, encoding: 'utf8' }).trim();
-    check('钩子已启用（core.hooksPath）', hooksPath === '.githooks', hooksPath);
+
+    // core.hooksPath 是仓库级配置，不会随克隆带走，全新克隆上就是没设的。
+    // 所以只在「已设置」时校验取值，不设置不算失败（不要用 git config 的退出码当断言）。
+    let hooksPath = '';
+    try {
+      hooksPath = execFileSync('git', ['config', 'core.hooksPath'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    } catch {
+      hooksPath = '';
+    }
+    check('hooksPath 若已设置则指向 .githooks', hooksPath === '' || hooksPath === '.githooks', hooksPath);
+
+    // 真正有价值的是功能验证：在一个临时仓库里塞进密钥，钩子的拦截逻辑必须拦下它。
+    // 这样不依赖本机配置，在任何环境（含 CI）都能跑。
+    const probe = await mkdtemp(path.join(tmpdir(), 'ds-balance-hook-'));
+    try {
+      const gitProbe = (args) => execFileSync('git', args, { cwd: probe, encoding: 'utf8' });
+      gitProbe(['init', '-q', '-b', 'main']);
+      const scanner = path.join(ROOT, 'tests/check-secrets.mjs');
+
+      // 含密钥的文件 → 必须被拒
+      await writeFile(path.join(probe, 'leak.js'), `const k = "sk-${'deadbeef'.repeat(4)}";\n`);
+      gitProbe(['add', 'leak.js']);
+      const blocked = spawnSync(process.execPath, [scanner, '--staged'], { cwd: probe, encoding: 'utf8' });
+      check('暂存了密钥时检查会拒绝', blocked.status === 1, `退出码 ${blocked.status}`);
+
+      // 本机数据路径 → 必须被拒
+      gitProbe(['reset', '-q']);
+      await mkdir(path.join(probe, 'data'), { recursive: true });
+      await writeFile(path.join(probe, 'data/keys.json'), '{"version":1,"keys":[]}\n');
+      gitProbe(['add', '-f', 'data/keys.json']);
+      const blockedData = spawnSync(process.execPath, [scanner, '--staged'], { cwd: probe, encoding: 'utf8' });
+      check('暂存了 data/ 下文件时检查会拒绝', blockedData.status === 1, `退出码 ${blockedData.status}`);
+
+      // 干净文件 → 必须放行，否则钩子会误伤正常提交
+      gitProbe(['reset', '-q']);
+      await writeFile(path.join(probe, 'clean.js'), 'export const answer = 42;\n');
+      gitProbe(['add', 'clean.js']);
+      const allowed = spawnSync(process.execPath, [scanner, '--staged'], { cwd: probe, encoding: 'utf8' });
+      check('干净的文件能通过检查', allowed.status === 0, `退出码 ${allowed.status}`);
+    } finally {
+      await rm(probe, { recursive: true, force: true });
+    }
   }
 
   section('Web 服务 · 安全防护');

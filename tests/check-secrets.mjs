@@ -19,12 +19,36 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-// 必须用 fileURLToPath：URL.pathname 是百分号编码的，
-// 路径里带空格或中文（比如本项目目录 "ds key"）时会指向不存在的目录。
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-if (!existsSync(path.join(ROOT, 'ds-balance.mjs'))) {
-  // 宁可直接报错，也不要因为找不到目录而静默放行
-  console.error(`\u001b[31m✗\u001b[0m 定位不到项目根目录：${ROOT}`);
+/**
+ * 定位要检查的仓库。
+ *
+ * 优先用**当前工作目录**，这样这个脚本能给任意仓库当检查工具
+ * （pre-commit 钩子被 git 调用时，cwd 就是仓库根目录）。
+ * 当前目录不在 git 仓库里时才回退到脚本自己所在的仓库。
+ */
+function resolveRepoRoot() {
+  try {
+    const top = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (top) return top;
+  } catch { /* 当前目录不在 git 仓库里 */ }
+  // 必须用 fileURLToPath：URL.pathname 是百分号编码的，
+  // 路径里带空格或中文（比如本项目目录 "ds key"）时会指向不存在的目录。
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+}
+
+const ROOT = resolveRepoRoot();
+
+// 宁可直接报错，也不要因为定位不到仓库而静默放行
+try {
+  execFileSync('git', ['rev-parse', '--git-dir'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'ignore'] });
+} catch {
+  console.error(`\u001b[31m✗\u001b[0m ${ROOT} 不是一个 git 仓库`);
+  process.exit(2);
+}
+if (!existsSync(ROOT)) {
+  console.error(`\u001b[31m✗\u001b[0m 定位不到仓库目录：${ROOT}`);
   process.exit(2);
 }
 

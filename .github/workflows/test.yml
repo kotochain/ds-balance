@@ -21,6 +21,11 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # core.hooksPath 是仓库级配置，不会随克隆带走。
+      # `npm install` 会通过 prepare 脚本自动设置，这里显式跑一遍（也顺便验证这条命令有效）。
+      - name: 启用 pre-commit 钩子
+        run: git config core.hooksPath .githooks
+
       # 自测全部走本地 mock 接口，不需要任何密钥，也不消耗真实额度
       - name: 运行自测
         run: node tests/self-test.mjs
